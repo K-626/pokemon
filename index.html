@@ -479,59 +479,125 @@
             },
 
             parseCsv: function (text) {
+            // BOM除去
+                if (text.charCodeAt(0) === 0xFEFF) {
+                    console.log('BOM detected and removed');
+                    text = text.slice(1);
+                }
+            
+                // 改行で分割して空行除去
                 const lines = text.split(/\r\n|\n/).filter(l => l.trim() !== "");
-                if (lines.length < 2) return;
-
-                const headers = lines[0].split(',').map(h => h.trim());
-
-                // Index Maps
-                const idxName = headers.indexOf('名前(日本語)');
-                const idxHP = headers.indexOf('HP');
-                const idxAtk = headers.indexOf('攻撃');
-                const idxDef = headers.indexOf('防御');
-                const idxSpA = headers.indexOf('特攻');
-                const idxSpD = headers.indexOf('特防');
-                const idxSpe = headers.indexOf('素早さ');
-                const idxT1 = headers.indexOf('タイプ1');
-                const idxT2 = headers.indexOf('タイプ2');
-
-                if (idxName === -1 || idxHP === -1) {
-                    alert("CSVヘッダーエラー: 必須列が見つかりません");
+                console.log('lines:', lines.length);
+            
+                if (lines.length < 2) {
+                    console.warn('CSV: 行数不足');
+                    document.getElementById('csv-status').innerText = "CSVの行数が不足しています";
                     return;
                 }
-
-                let count = 0;
-                pokemonDB = {};
-                const listEl = document.getElementById('pokemon-list');
-                listEl.innerHTML = '';
-
-                for (let i = 1; i < lines.length; i++) {
-                    const row = lines[i].split(',');
-                    if (row.length < headers.length) continue;
-
-                    const name = row[idxName].trim();
-                    // TODO: Handle forms
-                    if (!name) continue;
-
-                    pokemonDB[name] = {
-                        hp: parseInt(row[idxHP]),
-                        atk: parseInt(row[idxAtk]),
-                        def: parseInt(row[idxDef]),
-                        spa: parseInt(row[idxSpA]),
-                        spd: parseInt(row[idxSpD]),
-                        spe: parseInt(row[idxSpe]),
-                        t1: TYPE_JP_TO_EN[row[idxT1].trim()] || "normal",
-                        t2: TYPE_JP_TO_EN[row[idxT2].trim()] || "none"
-                    };
-
-                    const op = document.createElement('option');
-                    op.value = name;
-                    listEl.appendChild(op);
-                    count++;
+            
+                // ヘッダー行を取得して表示
+                const rawHeaders = lines[0].split(',').map(h => h.trim());
+                console.log('raw headers:', rawHeaders);
+            
+                // ヘッダー正規化ヘルパー（全角括弧→半角、空白削除、小文字化）
+                const normalize = (s) => (s || '').replace(/（/g, '(').replace(/）/g, ')').replace(/\s/g, '').toLowerCase();
+                const normHeaders = rawHeaders.map(h => normalize(h));
+                console.log('normalized headers:', normHeaders);
+            
+                // 緩いマッチでヘッダーのインデックスを探す
+                const findHeader = (candidates) => {
+                    for (let i = 0; i < normHeaders.length; i++) {
+                        for (let c of candidates) {
+                            if (normHeaders[i].indexOf(normalize(c)) !== -1) return i;
+                        }
+                    }
+                    return -1;
+                };
+            
+                const idxName = findHeader(['名前(日本語)', '名前（日本語）', '名前']);
+                const idxHP = findHeader(['HP']);
+                const idxAtk = findHeader(['攻撃', '攻']);
+                const idxDef = findHeader(['防御', '防']);
+                const idxSpA = findHeader(['特攻', '特']);
+                const idxSpD = findHeader(['特防', '特防御']);
+                const idxSpe = findHeader(['素早さ', '素早']);
+                const idxT1 = findHeader(['タイプ1', 'タイプ１', 'タイプ']);
+                const idxT2 = findHeader(['タイプ2', 'タイプ２']);
+            
+                console.log({ idxName, idxHP, idxAtk, idxDef, idxSpA, idxSpD, idxSpe, idxT1, idxT2 });
+            
+                if (idxName === -1 || idxHP === -1) {
+                    const available = rawHeaders.join(', ');
+                    alert("CSVヘッダーエラー: 必須列(名前/HP)が見つかりませんでした。\n検出ヘッダー: " + available);
+                    document.getElementById('csv-status').innerText = "ヘッダーエラー: 名前/HP 列が見つかりません";
+                    return;
                 }
-                document.getElementById('csv-status').innerText = `データ準備完了: ${count} 匹`;
-            },
+            
+                // 簡易CSVパーサ（"で囲まれたフィールド内のカンマに対応）
+                const splitCsvRow = (row) => {
+                    const res = [];
+                    let cur = '';
+                    let inQuotes = false;
+                    for (let i = 0; i < row.length; i++) {
+                        const ch = row[i];
+                        if (ch === '"') {
+                            if (inQuotes && row[i + 1] === '"') {
+                                cur += '"'; i++;
+                            } else {
+                                inQuotes = !inQuotes;
+                            }
+                        } else if (ch === ',' && !inQuotes) {
+                            res.push(cur);
+                            cur = '';
+                        } else {
+                            cur += ch;
+                        }
+                    }
+                    res.push(cur);
+                    return res;
+                };
 
+    let count = 0;
+    pokemonDB = {};
+    const listEl = document.getElementById('pokemon-list');
+    listEl.innerHTML = '';
+
+    for (let i = 1; i < lines.length; i++) {
+        const row = splitCsvRow(lines[i]).map(c => c.trim());
+        // 名前とHPが存在するかを確認（柔軟に扱う）
+        const name = row[idxName] || '';
+        const hpVal = row[idxHP] || '';
+
+        if (!name || !hpVal) {
+            // スキップ前にログ
+            console.debug(`skip row ${i + 1}: name or HP missing`, { name, hpVal, row });
+            continue;
+        }
+
+        // タイプ列が存在しなければ空文字にする
+        const t1raw = (idxT1 !== -1) ? (row[idxT1] || '') : '';
+        const t2raw = (idxT2 !== -1) ? (row[idxT2] || '') : '';
+
+        pokemonDB[name] = {
+            hp: parseInt(hpVal) || 0,
+            atk: parseInt(row[idxAtk]) || 0,
+            def: parseInt(row[idxDef]) || 0,
+            spa: parseInt(row[idxSpA]) || 0,
+            spd: parseInt(row[idxSpD]) || 0,
+            spe: parseInt(row[idxSpe]) || 0,
+            t1: TYPE_JP_TO_EN[(t1raw || '').trim()] || "normal",
+            t2: TYPE_JP_TO_EN[(t2raw || '').trim()] || "none"
+        };
+
+        const op = document.createElement('option');
+        op.value = name;
+        listEl.appendChild(op);
+        count++;
+    }
+
+    console.log('pokemonDB entries:', count);
+    document.getElementById('csv-status').innerText = `データ準備完了: ${count} 匹`;
+},
             autoFillStats: function (name, prefix) {
                 const data = pokemonDB[name];
                 if (data) {
