@@ -294,13 +294,6 @@
             <h1>ポケモン対戦シミュレーター (Gen 9)</h1>
             <p style="text-align:center">3vs3 ローカル対戦 / CSV読み込み対応</p>
 
-            <div class="file-upload-box" id="upload-area">
-                <p>ポケモンデータCSV (ヘッダー付き) を読み込むと種族値を自動入力します</p>
-                <input type="file" id="csv-input" accept=".csv" onchange="app.handleCsvUpload(this)">
-            </div>
-            <p id="csv-status" style="text-align:center; color:#666; font-size:14px; margin-bottom:20px;">
-                データ未ロード (手動入力またはCSVアップロード)
-            </p>
 
             <button class="btn" onclick="app.startSetup(0)">Player 1 セットアップ開始</button>
         </div>
