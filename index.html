@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Local Pokemon Battle Sim (Gen 9)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+            margin: 0;
+        }
+
+        .container {
+            width: 900px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            max-height: 95vh;
+            overflow-y: auto;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4 {
+            text-align: center;
+            color: #333;
+            margin: 10px 0;
+        }
+
+        /* 画面切り替え */
+        .screen {
+            display: none;
+        }
+
+        .active {
+            display: block;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        /* タブ UI */
+        .tabs {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #ddd;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            color: #666;
+            border-bottom: 3px solid transparent;
+        }
+
+        .tab-btn:hover {
+            background: #f9f9f9;
+        }
+
+        .tab-btn.active-tab {
+            color: #ff5252;
+            border-bottom: 3px solid #ff5252;
+            font-weight: bold;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active-content {
+            display: block;
+        }
+
+        /* 入力フォーム */
+        .wrapper-setup {
+            display: flex;
+            gap: 20px;
+        }
+
+        .player-setup-col {
+            flex: 1;
+            background: #fafafa;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #eee;
+        }
+
+        .input-group {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            background: white;
+        }
+
+        .stat-row {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 5px;
+            align-items: center;
+        }
+
+        .stat-row label {
+            width: 40px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .stat-row input,
+        .stat-row select {
+            font-size: 12px;
+            padding: 3px;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 5px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .move-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 5px;
+        }
+
+        /* ボタン */
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background: #ff5252;
+            color: white;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: #ff1744;
+        }
+
+        .btn-blue {
+            background: #2196F3;
+        }
+
+        .btn-blue:hover {
+            background: #1976D2;
+        }
+
+        .btn-move-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .btn-move {
+            background: #2196F3;
+            padding: 20px;
+            font-size: 14px;
+        }
+
+        .btn-move:hover {
+            background: #1976D2;
+        }
+
+        .btn-switch {
+            background: #FF9800;
+            margin-top: 10px;
+        }
+
+        .btn-switch:hover {
+            background: #F57C00;
+        }
+
+        /* バトル画面 */
+        .battle-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #eee;
+            border-radius: 8px;
+        }
+
+        .hp-bar-container {
+            width: 200px;
+            background: #e0e0e0;
+            height: 12px;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid #ccc;
+            margin: 5px 0;
+        }
+
+        .hp-bar {
+            height: 100%;
+            background: #4CAF50;
+            width: 100%;
+            transition: width 0.5s ease-out, background-color 0.3s;
+        }
+
+        .hp-low {
+            background: #ff9800 !important;
+        }
+
+        .hp-crit {
+            background: #f44336 !important;
+        }
+
+        .log-box {
+            background: #263238;
+            color: #eceff1;
+            padding: 15px;
+            height: 200px;
+            overflow-y: scroll;
+            font-family: 'Consolas', monospace;
+            white-space: pre-wrap;
+            border-radius: 8px;
+            border: 1px solid #455a64;
+            margin-bottom: 10px;
+        }
+
+        .curtain {
+            text-align: center;
+            padding: 50px 0;
+        }
+
+        .switch-card {
+            border: 2px solid #eee;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .switch-card:hover {
+            border-color: #2196F3;
+        }
+
+        .switch-card.disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            background: #ddd;
+        }
+
+        .file-upload-box {
+            border: 2px dashed #ccc;
+            padding: 20px;
+            text-align: center;
+            margin: 20px auto;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+    </style>
+</head>
+
+<body>
+
+    <datalist id="pokemon-list"></datalist>
+
+    <div class="container">
+        <!-- Start Screen -->
+        <div id="screen-start" class="screen active">
+            <h1>ポケモン対戦シミュレーター (Gen 9)</h1>
+            <p style="text-align:center">3vs3 ローカル対戦 / CSV読み込み対応</p>
+
+            <div class="file-upload-box" id="upload-area">
+                <p>ポケモンデータCSV (ヘッダー付き) を読み込むと種族値を自動入力します</p>
+                <input type="file" id="csv-input" accept=".csv" onchange="app.handleCsvUpload(this)">
+            </div>
+            <p id="csv-status" style="text-align:center; color:#666; font-size:14px; margin-bottom:20px;">
+                データ未ロード (手動入力またはCSVアップロード)
+            </p>
+
+            <button class="btn" onclick="app.startSetup(0)">Player 1 セットアップ開始</button>
+        </div>
+
+        <!-- Setup Screen -->
+        <div id="screen-setup" class="screen">
+            <h2 id="setup-title">Player X パーティ編成</h2>
+            <div id="setup-container"></div> <!-- Dynamic -->
+            <button class="btn" id="btn-setup-next" onclick="app.finishSetupStep()">次へ</button>
+        </div>
+
+        <!-- Curtain Screen (Setup Intermission & Battle Turns) -->
+        <div id="screen-curtain" class="screen">
+            <div class="curtain">
+                <h2 id="curtain-msg">Player X の番です</h2>
+                <p id="curtain-sub">相手に見えないようにPCを操作してください。</p>
+                <button class="btn" id="btn-curtain-action" onclick="app.curtainAction()">操作を開始する</button>
+            </div>
+        </div>
+
+        <!-- Input Screen -->
+        <div id="screen-input" class="screen">
+            <h2 id="input-player-header">Player X Action</h2>
+            <div class="battle-info">
+                <div>
+                    <strong>現在: <span id="input-active-name"></span></strong>
+                    <div class="hp-bar-container">
+                        <div id="input-hp-bar" class="hp-bar"></div>
+                    </div>
+                    <span id="input-hp-text"></span>
+                </div>
+            </div>
+
+            <h3>行動選択</h3>
+            <div class="btn-move-container" id="move-buttons"></div>
+            <button class="btn btn-switch" onclick="app.showSwitchScreen(false)">ポケモンを交代する</button>
+        </div>
+
+        <!-- Switch Screen -->
+        <div id="screen-switch" class="screen">
+            <h2>交代するポケモンを選択</h2>
+            <p id="switch-msg">選択してください</p>
+            <div id="switch-container" class="switch-list"></div>
+            <button class="btn btn-blue" id="btn-cancel-switch" onclick="app.cancelSwitch()">戻る</button>
+        </div>
+
+        <!-- Result Screen -->
+        <div id="screen-result" class="screen">
+            <h2>ターン結果</h2>
+            <div class="battle-info">
+                <!-- P1 Status -->
+                <div style="text-align: left;">
+                    <strong id="res-p1-name">P1</strong> (Lv.<span id="res-p1-lv">50</span>)
+                    <div class="hp-bar-container">
+                        <div id="res-hp-bar-p1" class="hp-bar"></div>
+                    </div>
+                    <span id="res-hp-text-p1">100/100</span>
+                </div>
+                <!-- P2 Status -->
+                <div style="text-align: right;">
+                    <strong id="res-p2-name">P2</strong> (Lv.<span id="res-p2-lv">50</span>)
+                    <div class="hp-bar-container">
+                        <div id="res-hp-bar-p2" class="hp-bar"></div>
+                    </div>
+                    <span id="res-hp-text-p2">100/100</span>
+                </div>
+            </div>
+
+            <div class="log-box" id="battle-log"></div>
+            <button class="btn" onclick="app.nextTurn()">次へ</button>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        //  CSV設定エリア (ここを変更してください)
+        // ==========================================
+
+        // ■方法1: メモ帳保存 (コード直接埋め込み)
+        // CSVファイルの内容を全てコピーして、バッククォート( ` )の間に貼り付けてください。
+        // ヘッダー行 (名前(日本語), HP...) も含めてください。
+        const CSV_DATA_EMBEDDED = ``;
+
+        // ■方法2: GitHub / Web読み込み
+        // GitHubなどにアップロードしたCSVの「Raw(生)」URLをここに貼り付けてください。
+        // ※空文字 "" の場合は読み込まれません
+        const CSV_DATA_URL = "";
+
+        // ■設定の優先順位
+        // "embed" : 方法1(埋め込み)を優先します
+        // "url"   : 方法2(URL)を優先します
+        // "manual": 自動読み込みを使用せず、画面からのファイルアップロードのみ許可します
+        const USE_CSV_SOURCE = "manual";
+
+        // ==========================================
+
+
+        // --- Constants & Config ---
+        const TYPE_JP_TO_EN = {
+            "ノーマル": "normal", "ほのお": "fire", "みず": "water", "くさ": "grass", "でんき": "electric",
+            "こおり": "ice", "かくとう": "fighting", "どく": "poison", "じめん": "ground", "ひこう": "flying",
+            "エスパー": "psychic", "むし": "bug", "いわ": "rock", "ゴースト": "ghost", "ドラゴン": "dragon",
+            "あく": "dark", "はがね": "steel", "フェアリー": "fairy", "": "none"
+        };
+
+        const TYPE_CHART = {
+            normal: { rock: 0.5, ghost: 0, steel: 0.5 },
+            fire: { fire: 0.5, water: 0.5, grass: 2, ice: 2, bug: 2, rock: 0.5, dragon: 0.5, steel: 2 },
+            water: { fire: 2, water: 0.5, grass: 0.5, ground: 2, rock: 2, dragon: 0.5 },
+            electric: { water: 2, electric: 0.5, grass: 0.5, ground: 0, flying: 2, dragon: 0.5 },
+            grass: { fire: 0.5, water: 2, grass: 0.5, poison: 0.5, ground: 2, flying: 0.5, bug: 0.5, rock: 2, dragon: 0.5, steel: 0.5 },
+            ice: { fire: 0.5, water: 0.5, grass: 2, ice: 0.5, ground: 2, flying: 2, dragon: 2, steel: 0.5 },
+            fighting: { normal: 2, ice: 2, poison: 0.5, flying: 0.5, psychic: 0.5, bug: 0.5, rock: 2, ghost: 0, dark: 2, steel: 2, fairy: 0.5 },
+            poison: { grass: 2, poison: 0.5, ground: 0.5, rock: 0.5, ghost: 0.5, steel: 0, fairy: 2 },
+            ground: { fire: 2, electric: 2, grass: 0.5, poison: 2, flying: 0, bug: 0.5, rock: 2, steel: 2 },
+            flying: { electric: 0.5, grass: 2, fighting: 2, bug: 2, rock: 0.5, steel: 0.5 },
+            psychic: { fighting: 2, poison: 2, psychic: 0.5, dark: 0, steel: 0.5 },
+            bug: { fire: 0.5, grass: 2, fighting: 0.5, poison: 0.5, flying: 0.5, psychic: 2, ghost: 0.5, dark: 2, steel: 0.5, fairy: 0.5 },
+            rock: { fire: 2, ice: 2, fighting: 0.5, ground: 0.5, flying: 2, bug: 2, steel: 0.5 },
+            ghost: { normal: 0, psychic: 2, ghost: 2, dark: 0.5 },
+            dragon: { dragon: 2, steel: 0.5, fairy: 0 },
+            dark: { fighting: 0.5, psychic: 2, ghost: 2, dark: 0.5, fairy: 0.5 },
+            steel: { fire: 0.5, water: 0.5, electric: 0.5, ice: 2, rock: 2, steel: 0.5, fairy: 2 },
+            fairy: { fire: 0.5, fighting: 2, poison: 0.5, dragon: 2, dark: 2, steel: 0.5 },
+            none: {}
+        };
+
+        const NATURE_TABLE = {
+            "1.0": { name: "補正なし", up: null, down: null },
+            "adamant": { name: "いじっぱり", up: "atk", down: "spa" },
+            "modest": { name: "ひかえめ", up: "spa", down: "atk" },
+            "bold": { name: "ずぶとい", up: "def", down: "atk" },
+            "timid": { name: "おくびょう", up: "spe", down: "atk" },
+            "jolly": { name: "ようき", up: "spe", down: "spa" },
+            "impish": { name: "わんぱく", up: "def", down: "spa" },
+            "calm": { name: "おだやか", up: "spd", down: "atk" },
+            "careful": { name: "しんちょう", up: "spd", down: "spa" },
+        };
+
+        const TEAM_SIZE = 3;
+        const MOVES_COUNT = 4;
+
+        // --- CSV Data Store ---
+        let pokemonDB = {};
+
+        // --- App State ---
+        const app = {
+            players: [],
+            setupPlayerIndex: 0,
+            turn: 0,
+            currentPlayerIndex: 0,
+            gameActive: false,
+
+            init: function () {
+                // Pre-load Logic
+                if (USE_CSV_SOURCE === "embed" && CSV_DATA_EMBEDDED.trim() !== "") {
+                    this.parseCsv(CSV_DATA_EMBEDDED);
+                    document.getElementById('upload-area').style.display = 'none';
+                    document.getElementById('csv-status').innerText = "埋め込みデータをロードしました";
+                } else if (USE_CSV_SOURCE === "url" && CSV_DATA_URL.trim() !== "") {
+                    document.getElementById('csv-status').innerText = "URLからデータを読み込んでいます...";
+                    fetch(CSV_DATA_URL)
+                        .then(res => res.text())
+                        .then(text => {
+                            this.parseCsv(text);
+                            document.getElementById('upload-area').style.display = 'none';
+                            document.getElementById('csv-status').innerText = "WEBデータをロードしました";
+                        })
+                        .catch(err => {
+                            console.error(err);
+                            document.getElementById('csv-status').innerText = "読み込みエラー (手動アップロードを使用してください)";
+                        });
+                }
+            },
+
+            // --- CSV Logic ---
+            handleCsvUpload: function (input) {
+                const file = input.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => { this.parseCsv(e.target.result); };
+                reader.readAsText(file);
+            },
+
+            parseCsv: function (text) {
+                const lines = text.split(/\r\n|\n/).filter(l => l.trim() !== "");
+                if (lines.length < 2) return;
+
+                const headers = lines[0].split(',').map(h => h.trim());
+
+                // Index Maps
+                const idxName = headers.indexOf('名前(日本語)');
+                const idxHP = headers.indexOf('HP');
+                const idxAtk = headers.indexOf('攻撃');
+                const idxDef = headers.indexOf('防御');
+                const idxSpA = headers.indexOf('特攻');
+                const idxSpD = headers.indexOf('特防');
+                const idxSpe = headers.indexOf('素早さ');
+                const idxT1 = headers.indexOf('タイプ1');
+                const idxT2 = headers.indexOf('タイプ2');
+
+                if (idxName === -1 || idxHP === -1) {
+                    alert("CSVヘッダーエラー: 必須列が見つかりません");
+                    return;
+                }
+
+                let count = 0;
+                pokemonDB = {};
+                const listEl = document.getElementById('pokemon-list');
+                listEl.innerHTML = '';
+
+                for (let i = 1; i < lines.length; i++) {
+                    const row = lines[i].split(',');
+                    if (row.length < headers.length) continue;
+
+                    const name = row[idxName].trim();
+                    // TODO: Handle forms
+                    if (!name) continue;
+
+                    pokemonDB[name] = {
+                        hp: parseInt(row[idxHP]),
+                        atk: parseInt(row[idxAtk]),
+                        def: parseInt(row[idxDef]),
+                        spa: parseInt(row[idxSpA]),
+                        spd: parseInt(row[idxSpD]),
+                        spe: parseInt(row[idxSpe]),
+                        t1: TYPE_JP_TO_EN[row[idxT1].trim()] || "normal",
+                        t2: TYPE_JP_TO_EN[row[idxT2].trim()] || "none"
+                    };
+
+                    const op = document.createElement('option');
+                    op.value = name;
+                    listEl.appendChild(op);
+                    count++;
+                }
+                document.getElementById('csv-status').innerText = `データ準備完了: ${count} 匹`;
+            },
+
+            autoFillStats: function (name, prefix) {
+                const data = pokemonDB[name];
+                if (data) {
+                    document.getElementById(`${prefix}_base_h`).value = data.hp;
+                    document.getElementById(`${prefix}_base_a`).value = data.atk;
+                    document.getElementById(`${prefix}_base_b`).value = data.def;
+                    document.getElementById(`${prefix}_base_c`).value = data.spa;
+                    document.getElementById(`${prefix}_base_d`).value = data.spd;
+                    document.getElementById(`${prefix}_base_s`).value = data.spe;
+
+                    document.getElementById(`${prefix}_type1`).value = data.t1;
+                    document.getElementById(`${prefix}_type2`).value = data.t2;
+                }
+            },
+
+            // --- Setup Logic ---
+            startSetup: function (pIdx) {
+                this.setupPlayerIndex = pIdx;
+                this.showScreen('screen-setup');
+                document.getElementById('setup-title').innerText = `Player ${pIdx + 1} パーティ編成`;
+                const btn = document.getElementById('btn-setup-next');
+                btn.innerText = (pIdx === 0) ? "次へ (Player 2へ交代)" : "バトル開始！";
+                this.renderSetup(pIdx);
+            },
+
+            renderSetup: function (pIdx) {
+                const container = document.getElementById('setup-container');
+                let html = '<div class="wrapper-setup">';
+                html += `<div class="player-setup-col">`;
+
+                html += `<div class="pokemon-tabs-nav">`;
+                for (let i = 0; i < TEAM_SIZE; i++) {
+                    html += `<button class="pokemon-tab ${i === 0 ? 'active' : ''}" onclick="app.switchSetupTab(${i})">Poke ${i + 1}</button>`;
+                }
+                html += `</div>`;
+
+                for (let i = 0; i < TEAM_SIZE; i++) {
+                    let display = i === 0 ? 'block' : 'none';
+                    const prefix = `p${pIdx}_m${i}`;
+
+                    html += `<div id="tab-${prefix}" class="tab-content" style="display:${display}">
+                        <div class="input-group">
+                            <label>ポケモン名 (自動入力対)</label>
+                            <input type="text" id="${prefix}_name" list="pokemon-list" placeholder="例: フシギバナ" 
+                                onchange="app.autoFillStats(this.value, '${prefix}')" value="">
+                            
+                            <div class="stat-row" style="margin-top:10px;">
+                                <label>Type</label>
+                                <select id="${prefix}_type1">${this.renderTypeOptions('normal')}</select>
+                                <select id="${prefix}_type2">${this.renderTypeOptions('none', true)}</select>
+                            </div>
+
+                            <div class="stat-row">
+                                <label>Lv</label><input type="number" id="${prefix}_lv" value="50" style="width:50px">
+                                <label>性格</label>
+                                <select id="${prefix}_nature">
+                                    <option value="1.0">--</option>
+                                    <option value="adamant">いじっぱり(A↑ C↓)</option>
+                                    <option value="jolly">ようき(S↑ C↓)</option>
+                                    <option value="modest">ひかえめ(C↑ A↓)</option>
+                                    <option value="timid">おくびょう(S↑ A↓)</option>
+                                    <option value="bold">ずぶとい(B↑ A↓)</option>
+                                    <option value="impish">わんぱく(B↑ C↓)</option>
+                                    <option value="calm">おだやか(D↑ A↓)</option>
+                                    <option value="careful">しんちょう(D↑ C↓)</option>
+                                </select>
+                            </div>
+                            <div class="stat-row">
+                                <strong>種 / 個 / 努</strong>
+                            </div>
+                            ${this.renderStatInput(prefix, 'h', 'HP')}
+                            ${this.renderStatInput(prefix, 'a', '攻撃')}
+                            ${this.renderStatInput(prefix, 'b', '防御')}
+                            ${this.renderStatInput(prefix, 'c', '特攻')}
+                            ${this.renderStatInput(prefix, 'd', '特防')}
+                            ${this.renderStatInput(prefix, 's', '素早')}
+                            
+                            <hr>
+                            <h4>技構成</h4>
+                            ${this.renderMovesInput(prefix)}
+                        </div>
+                    </div>`;
+                }
+                html += `</div></div>`;
+                container.innerHTML = html;
+            },
+
+            finishSetupStep: function () {
+                this.savePlayerData(this.setupPlayerIndex);
+
+                if (this.setupPlayerIndex === 0) {
+                    this.showScreen('screen-curtain');
+                    document.getElementById('curtain-msg').innerText = "Player 1 セットアップ完了";
+                    document.getElementById('curtain-sub').innerText = "Player 2 に交代してください。準備ができたらボタンを押してください。";
+                    document.getElementById('btn-curtain-action').onclick = () => {
+                        this.startSetup(1);
+                    };
+                    document.getElementById('btn-curtain-action').innerText = "Player 2 セットアップへ";
+                } else {
+                    this.initializeBattle();
+                }
+            },
+
+            savePlayerData: function (pIdx) {
+                let team = [];
+                for (let m = 0; m < TEAM_SIZE; m++) {
+                    const prefix = `p${pIdx}_m${m}`;
+                    let stats = this.calcStats(prefix);
+                    let moves = [];
+                    for (let j = 0; j < 4; j++) {
+                        moves.push({
+                            name: document.getElementById(`${prefix}_move${j}_name`).value || '-',
+                            type: document.getElementById(`${prefix}_move${j}_type`).value,
+                            category: document.getElementById(`${prefix}_move${j}_cat`).value,
+                            power: parseInt(document.getElementById(`${prefix}_move${j}_pwr`).value) || 0
+                        });
+                    }
+                    team.push({
+                        name: document.getElementById(`${prefix}_name`).value || `Poke${m + 1}`,
+                        lv: parseInt(document.getElementById(`${prefix}_lv`).value),
+                        stats: stats,
+                        currentHp: stats.hp,
+                        moves: moves,
+                        types: [
+                            document.getElementById(`${prefix}_type1`).value,
+                            document.getElementById(`${prefix}_type2`).value
+                        ]
+                    });
+                }
+                if (this.players.length <= pIdx) this.players[pIdx] = {};
+                this.players[pIdx] = {
+                    name: pIdx === 0 ? "Player 1" : "Player 2",
+                    team: team,
+                    activeIdx: 0,
+                    action: null
+                };
+            },
+
+            renderStatInput: function (prefix, statKey, label) {
+                return `<div class="stat-row">
+                    <label>${label}</label>
+                    <input type="number" id="${prefix}_base_${statKey}" placeholder="種" value="100">
+                    <input type="number" id="${prefix}_iv_${statKey}" placeholder="個" value="31">
+                    <input type="number" id="${prefix}_ev_${statKey}" placeholder="努" value="${statKey === 'a' || statKey === 's' ? 252 : 0}">
+                </div>`;
+            },
+
+            renderTypeOptions: function (selected, includeNone = false) {
+                let opts = '';
+                if (includeNone) opts += `<option value="none" ${selected === 'none' ? 'selected' : ''}>なし</option>`;
+                Object.keys(TYPE_CHART).forEach(k => {
+                    if (k !== 'none') {
+                        opts += `<option value="${k}" ${k === selected ? 'selected' : ''}>${k}</option>`;
+                    }
+                });
+                return opts;
+            },
+
+            renderMovesInput: function (prefix) {
+                let html = '<div class="move-grid">';
+                for (let j = 0; j < MOVES_COUNT; j++) {
+                    html += `<div class="input-group" style="margin-bottom:0; padding:5px;">
+                        <input type="text" id="${prefix}_move${j}_name" placeholder="技名">
+                        <div style="display:flex; gap:2px; margin-top:2px;">
+                            <select id="${prefix}_move${j}_type" style="width:60px;">
+                                ${this.renderTypeOptions('normal')}
+                            </select>
+                            <select id="${prefix}_move${j}_cat" style="width:50px;">
+                                <option value="physical">物</option>
+                                <option value="special">特</option>
+                                <option value="status">変</option>
+                            </select>
+                            <input type="number" id="${prefix}_move${j}_pwr" value="0" placeholder="威" style="width:40px;">
+                        </div>
+                    </div>`;
+                }
+                html += '</div>';
+                return html;
+            },
+
+            switchSetupTab: function (tabIdx) {
+                const prefixBase = `p${this.setupPlayerIndex}_m`;
+                for (let i = 0; i < TEAM_SIZE; i++) {
+                    document.getElementById(`tab-${prefixBase}${i}`).style.display = 'none';
+                }
+                document.getElementById(`tab-${prefixBase}${tabIdx}`).style.display = 'block';
+                const bts = document.querySelectorAll('.pokemon-tab');
+                bts.forEach(b => b.classList.remove('active'));
+                bts[tabIdx].classList.add('active');
+            },
+
+            // --- Battle Flow ---
+
+            initializeBattle: function () {
+                if (!this.players[0] || !this.players[1]) {
+                    alert("エラー: プレイヤーデータが不足しています");
+                    return;
+                }
+                this.turn = 0;
+                this.updateHpDisplay();
+                this.startTurnCycle();
+            },
+
+            startTurnCycle: function () {
+                this.currentPlayerIndex = 0;
+                this.gameActive = true;
+                this.checkForcedSwitchStart();
+            },
+
+            curtainAction: function () {
+                if (this.gameActive) {
+                    this.startTurnInput();
+                }
+            },
+
+            checkForcedSwitchStart: function () {
+                const p = this.players[this.currentPlayerIndex];
+                if (p.team[p.activeIdx].currentHp === 0) {
+                    this.showSwitchScreen(true);
+                } else {
+                    this.showCurtain();
+                }
+            },
+
+            showCurtain: function () {
+                this.showScreen('screen-curtain');
+                const pName = this.players[this.currentPlayerIndex].name;
+                document.getElementById('curtain-msg').innerText = `${pName} の番です`;
+                document.getElementById('curtain-sub').innerText = "相手に見えないようにPCを操作してください。";
+                document.getElementById('btn-curtain-action').onclick = () => app.curtainAction();
+                document.getElementById('btn-curtain-action').innerText = "操作を開始する";
+            },
+
+            startTurnInput: function () {
+                this.showScreen('screen-input');
+                const p = this.players[this.currentPlayerIndex];
+                const activeMon = p.team[p.activeIdx];
+
+                document.getElementById('input-player-header').innerText = `${p.name}: ${activeMon.name} の行動`;
+                document.getElementById('input-active-name').innerText = activeMon.name;
+                document.getElementById('input-hp-text').innerText = `${activeMon.currentHp}/${activeMon.stats.hp}`;
+
+                const pct = (activeMon.currentHp / activeMon.stats.hp) * 100;
+                const bar = document.getElementById('input-hp-bar');
+                bar.style.width = pct + '%';
+                this.setHpColor(bar, pct);
+
+                const container = document.getElementById('move-buttons');
+                container.innerHTML = '';
+                activeMon.moves.forEach((m, idx) => {
+                    const btn = document.createElement('button');
+                    btn.className = 'btn btn-move';
+                    btn.innerHTML = `<strong>${m.name}</strong><br>${m.type} / ${m.category === 'status' ? '-' : m.power}`;
+                    btn.onclick = () => this.registerMove(idx);
+                    container.appendChild(btn);
+                });
+            },
+
+            registerMove: function (moveIdx, switchIdx = null) {
+                if (moveIdx === -1 && switchIdx !== null) {
+                    this.players[this.currentPlayerIndex].action = { type: 'switch', switchIdx: switchIdx };
+                } else {
+                    this.players[this.currentPlayerIndex].action = { type: 'move', moveIdx: moveIdx };
+                }
+
+                if (this.currentPlayerIndex === 0) {
+                    this.currentPlayerIndex = 1;
+                    this.checkForcedSwitchStart();
+                } else {
+                    this.resolveTurn();
+                }
+            },
+
+            resolveTurn: function () {
+                this.showScreen('screen-result');
+                const p1 = this.players[0];
+                const p2 = this.players[1];
+                let log = `--- ターン ${++this.turn} ---\n`;
+
+                let p1Act = p1.action;
+                let p2Act = p2.action;
+                let events = [];
+
+                if (p1Act.type === 'switch') events.push({ type: 'switch', playerId: 0, val: p1Act.switchIdx });
+                if (p2Act.type === 'switch') events.push({ type: 'switch', playerId: 1, val: p2Act.switchIdx });
+
+                if (p1Act.type === 'move' && p2Act.type === 'move') {
+                    let m1 = p1.team[p1.activeIdx];
+                    let m2 = p2.team[p2.activeIdx];
+                    let first = (m1.stats.spe >= m2.stats.spe) ? 0 : 1;
+                    events.push({ type: 'move', playerId: first });
+                    events.push({ type: 'move', playerId: 1 - first });
+                } else if (p1Act.type === 'move') {
+                    events.push({ type: 'move', playerId: 0 });
+                } else if (p2Act.type === 'move') {
+                    events.push({ type: 'move', playerId: 1 });
+                }
+
+                for (let e of events) {
+                    const actorP = this.players[e.playerId];
+                    const targetP = this.players[1 - e.playerId];
+                    if (actorP.team[actorP.activeIdx].currentHp === 0 && e.type === 'move') continue;
+
+                    if (e.type === 'switch') {
+                        const oldName = actorP.team[actorP.activeIdx].name;
+                        actorP.activeIdx = e.val;
+                        const newName = actorP.team[actorP.activeIdx].name;
+                        log += `${actorP.name} は ${oldName} を戻して ${newName} を繰り出した！\n`;
+                        this.updateHpDisplay();
+                    } else {
+                        const attacker = actorP.team[actorP.activeIdx];
+                        const defender = targetP.team[targetP.activeIdx];
+                        const move = attacker.moves[actorP.action.moveIdx];
+                        log += `${attacker.name} の ${move.name}！\n`;
+
+                        if (move.category === 'status') {
+                            log += `(変化技は未実装です)\n`;
+                        } else {
+                            const result = this.calcDamage(attacker, defender, move);
+                            const dmg = result.damage;
+                            defender.currentHp = Math.max(0, defender.currentHp - dmg);
+                            log += `-> ${defender.name} に ${dmg} のダメージ！ (${defender.currentHp}/${defender.stats.hp})`;
+                            if (result.superEffective > 1) log += " [効果抜群]";
+                            if (result.superEffective < 1 && result.superEffective > 0) log += " [今ひとつ]";
+                            if (result.superEffective === 0) log += " [無効]";
+                            log += "\n";
+                            if (defender.currentHp === 0) log += `-> ${defender.name} は倒れた！\n`;
+                        }
+                    }
+                }
+                document.getElementById('battle-log').innerText = log;
+                this.updateHpDisplay();
+            },
+
+            calcDamage: function (attacker, defender, move) {
+                const lv = attacker.lv;
+                const power = move.power;
+                if (power <= 0) return { damage: 0, superEffective: 1 };
+
+                let a = (move.category === 'physical') ? attacker.stats.atk : attacker.stats.spa;
+                let d = (move.category === 'physical') ? defender.stats.def : defender.stats.spd;
+
+                let baseDmg = Math.floor(Math.floor(Math.floor(2 * lv / 5 + 2) * power * a / d) / 50) + 2;
+                let multi = 1.0;
+                let typeEff = 1.0;
+                defender.types.forEach(defT => {
+                    if (defT !== 'none' && TYPE_CHART[move.type] && TYPE_CHART[move.type][defT] !== undefined) {
+                        typeEff *= TYPE_CHART[move.type][defT];
+                    }
+                });
+                multi *= typeEff;
+                if (attacker.types.includes(move.type)) multi *= 1.5;
+                const rnd = (Math.floor(Math.random() * 16) + 85) / 100;
+
+                return { damage: Math.floor(baseDmg * multi * rnd), superEffective: typeEff };
+            },
+
+            calcStats: function (prefix) {
+                const getVal = (id) => parseInt(document.getElementById(id).value) || 0;
+                const lv = getVal(`${prefix}_lv`);
+                const natureKey = document.getElementById(`${prefix}_nature`).value;
+                const natureData = NATURE_TABLE[natureKey] || NATURE_TABLE["1.0"];
+
+                const calc = (stat, isHp) => {
+                    const base = getVal(`${prefix}_base_${stat}`);
+                    const iv = getVal(`${prefix}_iv_${stat}`);
+                    const ev = getVal(`${prefix}_ev_${stat}`);
+                    let core = Math.floor((2 * base + iv + Math.floor(ev / 4)) * lv / 100);
+                    if (isHp) return core + lv + 10;
+                    else {
+                        let res = core + 5;
+                        if (natureData.up === stat) res = Math.floor(res * 1.1);
+                        if (natureData.down === stat) res = Math.floor(res * 0.9);
+                        return res;
+                    }
+                };
+                return {
+                    hp: calc('h', true), atk: calc('a', false), def: calc('b', false),
+                    spa: calc('c', false), spd: calc('d', false), spe: calc('s', false)
+                };
+            },
+
+            updateHpDisplay: function () {
+                [0, 1].forEach(i => {
+                    const p = this.players[i];
+                    if (!p) return;
+                    const active = p.team[p.activeIdx];
+                    document.getElementById(`res-p${i + 1}-name`).innerText = active.name;
+                    document.getElementById(`res-p${i + 1}-lv`).innerText = active.lv;
+                    const pct = (active.currentHp / active.stats.hp) * 100;
+                    const bar = document.getElementById(`res-hp-bar-p${i + 1}`);
+                    const txt = document.getElementById(`res-hp-text-p${i + 1}`);
+                    bar.style.width = pct + '%';
+                    txt.innerText = `${active.currentHp}/${active.stats.hp}`;
+                    this.setHpColor(bar, pct);
+                });
+            },
+
+            setHpColor: function (el, pct) {
+                el.classList.remove('hp-low', 'hp-crit');
+                if (pct < 20) el.classList.add('hp-crit');
+                else if (pct < 50) el.classList.add('hp-low');
+            },
+
+            showSwitchScreen: function (isForced) {
+                this.showScreen('screen-switch');
+                const p = this.players[this.currentPlayerIndex];
+                document.getElementById('switch-msg').innerText = isForced
+                    ? `倒れた ${p.team[p.activeIdx].name} の代わりに繰り出すポケモンを選んでください`
+                    : "交代するポケモンを選択 (ターン消費)";
+                document.getElementById('btn-cancel-switch').style.display = isForced ? 'none' : 'block';
+                const container = document.getElementById('switch-container');
+                container.innerHTML = '';
+                p.team.forEach((mon, idx) => {
+                    const isAlive = mon.currentHp > 0;
+                    const isActive = idx === p.activeIdx;
+                    const div = document.createElement('div');
+                    div.className = `switch-card ${(!isAlive || isActive) ? 'disabled' : ''}`;
+                    div.innerHTML = `<strong>${mon.name} (Lv.${mon.lv})</strong><span>HP: ${mon.currentHp}/${mon.stats.hp}</span>`;
+                    div.onclick = () => { if (isAlive && !isActive) this.executeSwitchSelection(idx, isForced); };
+                    container.appendChild(div);
+                });
+            },
+
+            cancelSwitch: function () { this.startTurnInput(); },
+
+            executeSwitchSelection: function (newIdx, isForced) {
+                if (isForced) {
+                    this.players[this.currentPlayerIndex].activeIdx = newIdx;
+                    this.updateHpDisplay();
+                    alert(`${this.players[this.currentPlayerIndex].name} は ${this.players[this.currentPlayerIndex].team[newIdx].name} を繰り出した！`);
+                    this.nextTurn();
+                } else {
+                    this.registerMove(-1, newIdx);
+                }
+            },
+
+            nextTurn: function () {
+                const p1 = this.players[0]; const p2 = this.players[1];
+                const p1Dead = p1.team[p1.activeIdx].currentHp === 0;
+                const p2Dead = p2.team[p2.activeIdx].currentHp === 0;
+                const hasAlive = (p) => p.team.some(m => m.currentHp > 0);
+
+                if (p1Dead) {
+                    if (!hasAlive(p1)) { alert("Player 2 Wins!"); this.showScreen('screen-start'); return; }
+                    this.currentPlayerIndex = 0; this.showSwitchScreen(true); return;
+                }
+                if (p2Dead) {
+                    if (!hasAlive(p2)) { alert("Player 1 Wins!"); this.showScreen('screen-start'); return; }
+                    this.currentPlayerIndex = 1; this.showSwitchScreen(true); return;
+                }
+                this.startTurnCycle();
+            },
+
+            showScreen: function (id) {
+                document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+                document.getElementById(id).classList.add('active');
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', () => app.init());
+    </script>
+</body>
+
+</html>
