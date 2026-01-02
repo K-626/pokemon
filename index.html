@@ -58,7 +58,7 @@
             display: flex;
             justify-content: center;
             margin-bottom: 10px;
-            border-bottom: 2px solid #ddd;
+            border-bottom: 2px solid #dddddd;
         }
 
         .tab-btn {
@@ -296,11 +296,25 @@
 
             <!-- 追加: CSVアップロード UI とステータス -->
             <div class="file-upload-box" id="upload-area">
-                <p>ポケモンデータCSV (ヘッダー付き) を読み込むと種族値を自動入力します</p>
-                <input type="file" id="csv-input" accept=".csv" onchange="app.handleCsvUpload(this)">
+                <div style="display:flex; justify-content:center; gap:20px;">
+                    <div>
+                        <p>1. ポケモンデータCSV (名前/HP/種族値...)</p>
+                        <input type="file" id="csv-input-poke" accept=".csv"
+                            onchange="app.handleCsvUpload(this, 'pokemon')">
+                        <p id="csv-status-poke" style="font-size:12px; color:#666;">未ロード</p>
+                    </div>
+                    <div>
+                        <p>2. 技データCSV (名前/タイプ/効果...)</p>
+                        <input type="file" id="csv-input-move" accept=".csv"
+                            onchange="app.handleCsvUpload(this, 'move')">
+                        <p id="csv-status-move" style="font-size:12px; color:#666;">未ロード</p>
+                    </div>
+                </div>
             </div>
-            <p id="csv-status" style="text-align:center; color:#666; font-size:14px; margin-bottom:20px;">
-                データ未ロード (手動入力またはCSVアップロード)
+            <p style="text-align:center; color:#666; font-size:14px; margin-bottom:20px;">
+                * データ未ロードの場合は手動入力になります<br>
+                <button class="btn btn-blue" style="margin-top:10px; width:auto; padding:5px 15px; font-size:12px;"
+                    onclick="app.fetchDataFromUrl()">GitHubから最新データを読み込む</button>
             </p>
 
             <button class="btn" onclick="app.startSetup(0)">Player 1 セットアップ開始</button>
@@ -332,6 +346,7 @@
                         <div id="input-hp-bar" class="hp-bar"></div>
                     </div>
                     <span id="input-hp-text"></span>
+                    <div id="input-active-ranks" style="font-size: 14px; margin-top: 5px; color: #444;"></div>
                 </div>
             </div>
 
@@ -380,15 +395,15 @@
         //  CSV設定エリア (ここを変更してください)
         // ==========================================
         const CSV_DATA_EMBEDDED = ``;
-        
+
         // Raw URL のパスは /<owner>/<repo>/<branch>/<path> の形式にする（refs/heads は不要）
         const CSV_DATA_URL = "https://raw.githubusercontent.com/K-626/pokemon/refs/heads/main/data.csv";
-        
+
         // 自動読み込みを有効にするには "url" または "embed" に設定します
         // "url" -> CSV_DATA_URL から fetch
         // "embed" -> CSV_DATA_EMBEDDED に埋め込んだテキストを読み込む
         // "manual" -> ファイル入力のみ（今の挙動）
-        const USE_CSV_SOURCE = "url";
+        const USE_CSV_SOURCE = "manual";
         // ==========================================
 
         // --- Constants & Config ---
@@ -433,11 +448,19 @@
             "careful": { name: "しんちょう", up: "spd", down: "spa" },
         };
 
+        const TYPE_EN_TO_JP = {};
+        Object.keys(TYPE_JP_TO_EN).forEach(jp => {
+            const en = TYPE_JP_TO_EN[jp];
+            if (en !== 'none') TYPE_EN_TO_JP[en] = jp;
+        });
+        TYPE_EN_TO_JP['none'] = 'ー';
+
         const TEAM_SIZE = 3;
         const MOVES_COUNT = 4;
 
         // --- CSV Data Store ---
         let pokemonDB = {};
+        let moveDB = {};
 
         // --- App State ---
         const app = {
@@ -478,13 +501,212 @@
                 }
             },
 
+            fetchDataFromUrl: function () {
+                const POKE_URL = "https://raw.githubusercontent.com/K-626/pokemon/main/data.csv";
+                const MOVE_URL = "https://raw.githubusercontent.com/K-626/pokemon/main/move.csv";
+
+                const fetchOne = (url, type) => {
+                    return fetch(url)
+                        .then(res => {
+                            if (!res.ok) throw new Error('Fetch failed: ' + url);
+                            return res.text();
+                        })
+                        .then(text => {
+                            if (type === 'pokemon') this.parseCsv(text);
+                            else if (type === 'move') this.parseMoveCsv(text);
+                        })
+                        .catch(err => {
+                            console.error(err);
+                            alert("エラー: " + url + " の読み込みに失敗しました。URLが正しいか確認してください。");
+                        });
+                };
+
+                Promise.all([fetchOne(POKE_URL, 'pokemon'), fetchOne(MOVE_URL, 'move')])
+                    .then(() => {
+                        const area = document.getElementById('upload-area');
+                        if (area) area.style.backgroundColor = '#e8f5e9';
+                    });
+            },
+
             // --- CSV Logic ---
-            handleCsvUpload: function (input) {
+            handleCsvUpload: function (input, type) {
                 const file = input.files[0];
                 if (!file) return;
                 const reader = new FileReader();
-                reader.onload = (e) => { this.parseCsv(e.target.result); };
+                reader.onload = (e) => {
+                    if (type === 'pokemon') this.parseCsv(e.target.result);
+                    if (type === 'move') this.parseMoveCsv(e.target.result);
+                };
                 reader.readAsText(file);
+            },
+
+            parseMoveCsv: function (text) {
+                // Determine headers automatically similar to pokemon csv
+                if (!text) return;
+                // BOM check
+                if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+
+                const lines = text.split(/\r\n|\n/).filter(l => l.trim() !== "");
+                if (lines.length < 2) return;
+
+                const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+                const find = (keys) => headers.findIndex(h => keys.some(k => h.includes(k)));
+
+                const idxName = find(['名前', 'name']);
+                const idxType = find(['タイプ', 'type']);
+                const idxCat = find(['分類', 'category', 'cat']);
+                const idxPower = find(['威力', 'power']);
+                const idxAcc = find(['命中', 'accuracy', 'acc']);
+                const idxEffect = find(['効果', 'effect']);
+
+                if (idxName === -1) {
+                    alert("技CSVエラー: 名前列が見つかりません");
+                    return;
+                }
+
+                // Simple parser
+                const splitRow = (row) => {
+                    const res = []; let cur = ''; let q = false;
+                    for (let c of row) {
+                        if (c === '"') { q = !q; } else if (c === ',' && !q) { res.push(cur); cur = ''; } else { cur += c; }
+                    }
+                    res.push(cur); return res;
+                };
+
+                let count = 0;
+                moveDB = {};
+                for (let i = 1; i < lines.length; i++) {
+                    const row = splitRow(lines[i]).map(s => s.trim().replace(/^"|"$/g, ''));
+                    const name = row[idxName];
+                    if (!name) continue;
+
+                    const effStr = (idxEffect !== -1 && row[idxEffect]) ? row[idxEffect] : "";
+
+                    moveDB[name] = {
+                        name: name,
+                        type: (idxType !== -1) ? (TYPE_JP_TO_EN[row[idxType]] || 'normal') : 'normal',
+                        category: (idxCat !== -1 && (row[idxCat] === '変化' || row[idxCat] === 'status' || row[idxCat] === 'へんか')) ? 'status'
+                            : (idxCat !== -1 && (row[idxCat] === '特殊' || row[idxCat] === 'special' || row[idxCat] === 'とくしゅ')) ? 'special' : 'physical',
+                        power: (idxPower !== -1) ? (parseInt(row[idxPower]) || 0) : 0,
+                        accuracy: (idxAcc !== -1) ? (parseInt(row[idxAcc]) || 100) : 100,
+                        effect: this.parseMoveEffect(effStr)
+                    };
+                    count++;
+                }
+                const st = document.getElementById('csv-status-move');
+                if (st) st.innerText = `技データ: ${count}件ロード完了`;
+                console.log('MoveDB loaded:', count);
+
+                // Add to datalist if exists
+                let dl = document.getElementById('move-list');
+                if (!dl) {
+                    dl = document.createElement('datalist');
+                    dl.id = 'move-list';
+                    document.body.appendChild(dl);
+                }
+                dl.innerHTML = '';
+                Object.keys(moveDB).forEach(k => {
+                    const op = document.createElement('option');
+                    op.value = k;
+                    dl.appendChild(op);
+                });
+            },
+
+            parseMoveEffect: function (str) {
+                // Parse the "Effect" column based on user rules
+                const res = {
+                    meta: {},
+                    flags: {}
+                };
+                if (!str) return res;
+
+                // 2. State Assign
+                // "May (poison/paralyze/burn/freeze)"
+                if (str.match(/poison/i) || str.includes('どく')) { res.meta.status = 'psn'; res.meta.statusChance = 30; } // Default 30 if not specified
+                if (str.match(/paralyze/i) || str.includes('まひ')) { res.meta.status = 'par'; res.meta.statusChance = 30; }
+                if (str.match(/burn/i) || str.includes('やけど')) { res.meta.status = 'brn'; res.meta.statusChance = 30; }
+                if (str.match(/freeze/i) || str.includes('こおり')) { res.meta.status = 'frz'; res.meta.statusChance = 10; }
+                if (str.match(/confuse/i) || str.includes('混乱')) { res.meta.confuse = true; res.meta.confuseChance = 30; }
+                if (str.match(/sleep/i) || str.includes('眠り')) { res.meta.status = 'slp'; res.meta.statusChance = 100; }
+
+                // 3. Flinch
+                if (str.match(/flinch/i) || str.includes('ひるみ')) { res.meta.flinchChance = 30; }
+
+                // 3. Flinch
+                if (str.match(/flinch/i) || str.includes('ひるみ')) { res.meta.flinchChance = 30; }
+
+                // 4. Stats (Enhanced)
+                // Format: { target: 'self'|'enemy', stat: 'atk'|'def'|'spa'|'spd'|'spe'|'eva', stage: 1 }
+                res.statChanges = [];
+
+                const statMap = {
+                    'special attack': 'spa', 'special defense': 'spd',
+                    'attack': 'atk', 'defense': 'def', 'sp. atk': 'spa', 'sp. def': 'spd', 'speed': 'spe', 'evasion': 'eva',
+                    '攻撃': 'atk', '防御': 'def', '特攻': 'spa', '特防': 'spd', '素早さ': 'spe', '回避率': 'eva'
+                };
+
+                const checkStat = (s) => {
+                    let target = 'self';
+                    let stage = 0;
+                    // Self
+                    if (s.match(/raises (?:the )?user's/i) || s.includes('自分の')) target = 'self';
+                    // Enemy
+                    if (s.match(/lowers (?:the )?target's/i) || s.includes('相手の')) target = 'enemy';
+
+                    let statKey = null;
+                    // Sort keys by length desc to match "Special Attack" before "Attack"
+                    const keys = Object.keys(statMap).sort((a, b) => b.length - a.length);
+                    for (const k of keys) {
+                        if (s.toLowerCase().includes(k)) {
+                            statKey = statMap[k];
+                            break;
+                        }
+                    }
+                    if (!statKey) return; // No stat found
+
+                    // Stage
+                    if (s.match(/sharply raises/i) || s.match(/by two stages/i) || s.includes('ぐーんと上が') || s.includes('2段階')) stage = 2;
+                    else if (s.match(/drastically raises/i) || s.match(/by three stages/i) || s.includes('3段階')) stage = 3;
+                    else if (s.match(/raises/i) || s.includes('上がる')) stage = 1;
+                    else if (s.match(/harshly lowers/i) || s.match(/by two stages/i) || s.includes('がくっと下が')) stage = -2;
+                    else if (s.match(/severely lowers/i) || s.match(/by three stages/i)) stage = -3;
+                    else if (s.match(/lowers/i) || s.includes('下がる')) stage = -1;
+
+                    if (stage !== 0) {
+                        res.statChanges.push({ target, stat: statKey, stage });
+                    }
+                };
+                checkStat(str);
+
+                if (str.match(/Raises the user's/i) || str.includes('自分の能力を上げ')) {
+                    // Fallback or generic logic if specific not caught
+                    if (res.statChanges.length === 0) res.meta.statSelf = true;
+                }
+
+                // 5. High Crit
+                if (str.match(/high critical/i) || str.includes('急所')) { res.meta.critRate = 2; }
+
+                // 6. Never Miss
+                if (str.match(/never miss/i) || str.includes('必中')) { res.flags.alwaysHit = true; }
+
+                // 7. Multi Hit
+                if (str.match(/Hits 2–5 times/i)) { res.multihit = [2, 5]; }
+                if (str.match(/Hits twice/i) || str.includes('2回連続')) { res.multihit = [2, 2]; }
+
+                // 8. Recoil
+                if (str.match(/recoil/i) || str.includes('反動')) { res.meta.recoil = 0.25; } // generic 1/4
+
+                // 9. Drain
+                if (str.match(/recovers.*damage/i) || str.includes('吸収')) { res.meta.drain = 0.5; }
+
+                // 10. OHKO
+                if (str.match(/One-hit KO/i) || str.includes('一撃必殺')) { res.meta.ohko = true; }
+
+                // 12. Fixed Damage
+                const fixed = str.match(/Inflicts (\d+) damage/i);
+                if (fixed) { res.fixedDamage = parseInt(fixed[1]); }
+
+                return res;
             },
 
             parseCsv: function (text) {
@@ -493,7 +715,7 @@
                     console.log('BOM detected and removed');
                     text = text.slice(1);
                 }
-            
+
                 if (!text || typeof text !== 'string') {
                     console.warn('parseCsv: invalid text');
                     return;
@@ -505,7 +727,7 @@
 
                 if (lines.length < 2) {
                     console.warn('CSV: 行数不足');
-                    const csvStatusEl = document.getElementById('csv-status');
+                    const csvStatusEl = document.getElementById('csv-status-poke');
                     if (csvStatusEl) csvStatusEl.innerText = "CSVの行数が不足しています";
                     return;
                 }
@@ -544,7 +766,7 @@
                 if (idxName === -1 || idxHP === -1) {
                     const available = rawHeaders.join(', ');
                     alert("CSVヘッダーエラー: 必須列(名前/HP)が見つかりませんでした。\n検出ヘッダー: " + available);
-                    const csvStatusEl = document.getElementById('csv-status');
+                    const csvStatusEl = document.getElementById('csv-status-poke');
                     if (csvStatusEl) csvStatusEl.innerText = "ヘッダーエラー: 名前/HP 列が見つかりません";
                     return;
                 }
@@ -614,7 +836,7 @@
                 }
 
                 console.log('pokemonDB entries:', count);
-                const csvStatusEl = document.getElementById('csv-status');
+                const csvStatusEl = document.getElementById('csv-status-poke');
                 if (csvStatusEl) csvStatusEl.innerText = `データ準備完了: ${count} 匹`;
             },
 
@@ -689,6 +911,16 @@
                                 </select>
                             </div>
                             <div class="stat-row">
+                                <label>持ち物</label>
+                                <select id="${prefix}_item">
+                                    <option value="">なし</option>
+                                    <option value="choice_band">こだわりハチマキ(A1.5倍/技固定)</option>
+                                    <option value="choice_specs">こだわりメガネ(C1.5倍/技固定)</option>
+                                    <option value="choice_scarf">こだわりスカーフ(S1.5倍/技固定)</option>
+                                    <option value="assault_vest">とつげきチョッキ(D1.5倍/変化技不可)</option>
+                                </select>
+                            </div>
+                            <div class="stat-row">
                                 <strong>種 / 個 / 努</strong>
                             </div>
                             ${this.renderStatInput(prefix, 'h', 'HP')}
@@ -706,6 +938,38 @@
                 }
                 html += `</div></div>`;
                 container.innerHTML = html;
+            },
+
+            renderMovesInput: function (prefix) {
+                let html = '<div class="move-grid">';
+                for (let j = 0; j < MOVES_COUNT; j++) {
+                    html += `<div class="input-group" style="margin-bottom:0; padding:5px;">
+                        <input type="text" id="${prefix}_move${j}_name" list="move-list" placeholder="技名" onchange="app.autoFillMove(this, '${prefix}_move${j}')">
+                        <div style="display:flex; gap:2px; margin-top:2px;">
+                            <select id="${prefix}_move${j}_type" style="width:60px;">
+                                ${this.renderTypeOptions('normal')}
+                            </select>
+                            <select id="${prefix}_move${j}_cat" style="width:50px;">
+                                <option value="physical">物</option>
+                                <option value="special">特</option>
+                                <option value="status">変</option>
+                            </select>
+                            <input type="number" id="${prefix}_move${j}_pwr" value="0" placeholder="威" style="width:40px;">
+                        </div>
+                    </div>`;
+                }
+                html += '</div>';
+                return html;
+            },
+
+            autoFillMove: function (input, prefix) {
+                const val = input.value;
+                if (!moveDB[val]) return;
+                const m = moveDB[val];
+                const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+                setVal(`${prefix}_type`, m.type);
+                setVal(`${prefix}_cat`, m.category);
+                setVal(`${prefix}_pwr`, m.power);
             },
 
             finishSetupStep: function () {
@@ -754,6 +1018,7 @@
                         lv: lvEl ? parseInt(lvEl.value) || 50 : 50,
                         stats: stats,
                         currentHp: stats.hp,
+                        ranks: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0 },
                         moves: moves,
                         types: [
                             t1El ? t1El.value : 'normal',
@@ -784,7 +1049,8 @@
                 if (includeNone) opts += `<option value="none" ${selected === 'none' ? 'selected' : ''}>なし</option>`;
                 Object.keys(TYPE_CHART).forEach(k => {
                     if (k !== 'none') {
-                        opts += `<option value="${k}" ${k === selected ? 'selected' : ''}>${k}</option>`;
+                        const jp = TYPE_EN_TO_JP[k] || k;
+                        opts += `<option value="${k}" ${k === selected ? 'selected' : ''}>${jp}</option>`;
                     }
                 });
                 return opts;
@@ -794,7 +1060,7 @@
                 let html = '<div class="move-grid">';
                 for (let j = 0; j < MOVES_COUNT; j++) {
                     html += `<div class="input-group" style="margin-bottom:0; padding:5px;">
-                        <input type="text" id="${prefix}_move${j}_name" placeholder="技名">
+                        <input type="text" id="${prefix}_move${j}_name" list="move-list" placeholder="技名" onchange="app.autoFillMove(this, '${prefix}_move${j}')">
                         <div style="display:flex; gap:2px; margin-top:2px;">
                             <select id="${prefix}_move${j}_type" style="width:60px;">
                                 ${this.renderTypeOptions('normal')}
@@ -810,6 +1076,17 @@
                 }
                 html += '</div>';
                 return html;
+            },
+
+            autoFillMove: function (input, prefix) {
+                const val = input.value;
+                if (!moveDB[val]) return;
+                const m = moveDB[val];
+                const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+                setVal(`${prefix}_type`, m.type);
+                setVal(`${prefix}_cat`, m.category);
+                setVal(`${prefix}_pwr`, m.power);
+                // Can also store accuracy/effect hiddenly if needed, but we look up by name in battle anyway
             },
 
             switchSetupTab: function (tabIdx) {
@@ -889,13 +1166,29 @@
                     this.setHpColor(bar, pct);
                 }
 
+                const ranksEl = document.getElementById('input-active-ranks');
+                if (ranksEl) {
+                    const r = activeMon.ranks || { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0 };
+                    const labels = { atk: '攻', def: '防', spa: '特攻', spd: '特防', spe: '素', eva: '回' };
+                    let txt = [];
+                    ['atk', 'def', 'spa', 'spd', 'spe', 'eva'].forEach(k => {
+                        const val = r[k];
+                        if (val !== 0) {
+                            txt.push(`${labels[k]}:${val > 0 ? '+' + val : val}`);
+                        }
+                    });
+                    ranksEl.innerText = txt.length > 0 ? txt.join(" ") : "ランク変化なし";
+                }
+
                 const container = document.getElementById('move-buttons');
                 if (container) {
                     container.innerHTML = '';
                     activeMon.moves.forEach((m, idx) => {
+                        if (!m.name || m.name === '-') return;
                         const btn = document.createElement('button');
                         btn.className = 'btn btn-move';
-                        btn.innerHTML = `<strong>${m.name}</strong><br>${m.type} / ${m.category === 'status' ? '-' : m.power}`;
+                        const typeJp = TYPE_EN_TO_JP[m.type] || m.type;
+                        btn.innerHTML = `<strong>${m.name}</strong><br>${typeJp} / ${m.category === 'status' ? '-' : m.power}`;
                         btn.onclick = () => this.registerMove(idx);
                         container.appendChild(btn);
                     });
@@ -919,73 +1212,308 @@
 
             resolveTurn: function () {
                 this.showScreen('screen-result');
+                const btn = document.querySelector('#screen-result button');
+                if (btn) btn.disabled = true;
                 const p1 = this.players[0];
                 const p2 = this.players[1];
-                let log = `--- ターン ${++this.turn} ---\n`;
+
+                // ログ初期化
+                const logBox = document.getElementById('battle-log');
+                logBox.innerText = `--- ターン ${++this.turn} ---\n`;
+
+                this.turnQueue = [];
 
                 let p1Act = p1.action;
                 let p2Act = p2.action;
-                let events = [];
 
-                if (p1Act.type === 'switch') events.push({ type: 'switch', playerId: 0, val: p1Act.switchIdx });
-                if (p2Act.type === 'switch') events.push({ type: 'switch', playerId: 1, val: p2Act.switchIdx });
+                // Speed Check
+                const getSpeed = (p) => {
+                    const mon = p.team[p.activeIdx];
+                    let s = mon.stats.spe * this.getRankMultiplier(mon.ranks ? mon.ranks.spe : 0);
+                    if (mon.item === 'choice_scarf') s *= 1.5;
+                    if (mon.status && mon.status.condition === 'par') s *= 0.5;
+                    return Math.floor(s);
+                };
+                let p1Speed = getSpeed(p1);
+                let p2Speed = getSpeed(p2);
 
-                if (p1Act.type === 'move' && p2Act.type === 'move') {
-                    let m1 = p1.team[p1.activeIdx];
-                    let m2 = p2.team[p2.activeIdx];
-                    let first = (m1.stats.spe >= m2.stats.spe) ? 0 : 1;
-                    events.push({ type: 'move', playerId: first });
-                    events.push({ type: 'move', playerId: 1 - first });
-                } else if (p1Act.type === 'move') {
-                    events.push({ type: 'move', playerId: 0 });
-                } else if (p2Act.type === 'move') {
-                    events.push({ type: 'move', playerId: 1 });
+                let order = [];
+                // Priority: Switch > Move
+                if (p1Act.type === 'switch' && p2Act.type !== 'switch') order = [0, 1];
+                else if (p2Act.type === 'switch' && p1Act.type !== 'switch') order = [1, 0];
+                else if (p1Act.type === 'switch' && p2Act.type === 'switch') {
+                    order = (p1Speed >= p2Speed) ? [0, 1] : [1, 0];
+                } else {
+                    // Both Move
+                    order = (p1Speed >= p2Speed) ? [0, 1] : [1, 0];
                 }
 
-                for (let e of events) {
-                    const actorP = this.players[e.playerId];
-                    const targetP = this.players[1 - e.playerId];
-                    if (actorP.team[actorP.activeIdx].currentHp === 0 && e.type === 'move') continue;
+                // Simulation State (so we know if someone fainted mid-turn)
+                const simState = [
+                    { currentHp: p1.team[p1.activeIdx].currentHp },
+                    { currentHp: p2.team[p2.activeIdx].currentHp }
+                ];
+                let simActiveIdx = [p1.activeIdx, p2.activeIdx];
 
-                    if (e.type === 'switch') {
-                        const oldName = actorP.team[actorP.activeIdx].name;
-                        actorP.activeIdx = e.val;
-                        const newName = actorP.team[actorP.activeIdx].name;
-                        log += `${actorP.name} は ${oldName} を戻して ${newName} を繰り出した！\n`;
-                        this.updateHpDisplay();
-                    } else {
-                        const attacker = actorP.team[actorP.activeIdx];
-                        const defender = targetP.team[targetP.activeIdx];
-                        const move = attacker.moves[actorP.action.moveIdx];
-                        log += `${attacker.name} の ${move.name}！\n`;
+                order.forEach(actorIdx => {
+                    const targetIdx = 1 - actorIdx;
+                    const actorP = this.players[actorIdx];
+                    const targetP = this.players[targetIdx];
+                    const act = actorP.action;
 
-                        if (move.category === 'status') {
-                            log += `(変化技は未実装です)\n`;
-                        } else {
-                            const result = this.calcDamage(attacker, defender, move);
-                            const dmg = result.damage;
-                            defender.currentHp = Math.max(0, defender.currentHp - dmg);
-                            log += `-> ${defender.name} に ${dmg} のダメージ！ (${defender.currentHp}/${defender.stats.hp})`;
-                            if (result.superEffective > 1) log += " [効果抜群]";
-                            if (result.superEffective < 1 && result.superEffective > 0) log += " [今ひとつ]";
-                            if (result.superEffective === 0) log += " [無効]";
-                            log += "\n";
-                            if (defender.currentHp === 0) log += `-> ${defender.name} は倒れた！\n`;
+                    // Dead check (if killed by first mover)
+                    if (simState[actorIdx].currentHp <= 0) return;
+
+                    const activeMonSim = actorP.team[simActiveIdx[actorIdx]];
+
+                    // Paralysis Check
+                    if (act.type === 'move') {
+                        if (activeMonSim.status && activeMonSim.status.condition === 'par') {
+                            if (Math.random() < 0.25) {
+                                this.turnQueue.push({ type: 'text', msg: `${activeMonSim.name} は体がしびれて動けない！` });
+                                return; // Skip turn
+                            }
                         }
                     }
-                }
-                const battleLogEl = document.getElementById('battle-log');
-                if (battleLogEl) battleLogEl.innerText = log;
-                this.updateHpDisplay();
+
+                    if (act.type === 'switch') {
+                        this.turnQueue.push({
+                            type: 'switch',
+                            actorIdx: actorIdx,
+                            newActiveIdx: act.switchIdx,
+                            oldName: actorP.team[simActiveIdx[actorIdx]].name,
+                            newName: actorP.team[act.switchIdx].name
+                        });
+                        simActiveIdx[actorIdx] = act.switchIdx;
+                        simState[actorIdx].currentHp = actorP.team[act.switchIdx].currentHp;
+                    } else if (act.type === 'move') {
+                        const attacker = actorP.team[simActiveIdx[actorIdx]];
+                        const defender = targetP.team[simActiveIdx[targetIdx]];
+                        const move = attacker.moves[act.moveIdx];
+
+                        this.turnQueue.push({
+                            type: 'text',
+                            msg: `${attacker.name} の ${move.name}！`
+                        });
+
+                        const moveData = moveDB[move.name] || move;
+
+                        // 1. Accuracy Check
+                        let hit = true;
+                        const defenderEvaRank = defender.ranks ? defender.ranks.eva : 0;
+                        const evaMult = this.getRankMultiplier(defenderEvaRank);
+                        const accBase = (moveData.accuracy !== undefined) ? moveData.accuracy : 100;
+
+                        if (!(moveData.effect && moveData.effect.flags && moveData.effect.flags.alwaysHit)) {
+                            if (Math.random() * 100 > (accBase / evaMult)) hit = false;
+                        }
+
+                        if (!hit) {
+                            this.turnQueue.push({ type: 'text', msg: '攻撃は外れた！' });
+                        } else {
+                            const effect = moveData.effect || {};
+                            let hits = 1;
+                            if (effect.multihit) {
+                                hits = Math.floor(Math.random() * (effect.multihit[1] - effect.multihit[0] + 1)) + effect.multihit[0];
+                            }
+
+                            let totalDmg = 0;
+                            for (let h = 0; h < hits; h++) {
+                                let dmg = 0;
+                                let effMsg = "";
+
+                                if (move.category === 'status') {
+                                } else if (effect.fixedDamage) {
+                                    dmg = effect.fixedDamage;
+                                } else if (effect.meta && effect.meta.ohko) {
+                                    dmg = simState[targetIdx].currentHp;
+                                    effMsg = "一撃必殺！";
+                                } else {
+                                    const res = this.calcDamage(attacker, defender, move, effect);
+                                    dmg = res.damage;
+                                    if (res.superEffective > 1) effMsg = "効果はバツグンだ！";
+                                    else if (res.superEffective === 0) effMsg = "効果がないようだ...";
+                                    else if (res.superEffective < 1) effMsg = "効果はいまひとつのようだ...";
+                                    if (res.superEffective > 0 && dmg === 0) dmg = 1;
+                                }
+
+                                if (dmg > simState[targetIdx].currentHp) dmg = simState[targetIdx].currentHp;
+                                simState[targetIdx].currentHp -= dmg;
+                                totalDmg += dmg;
+
+                                if (move.category !== 'status') {
+                                    this.turnQueue.push({
+                                        type: 'damage',
+                                        targetIdx: targetIdx,
+                                        damage: dmg,
+                                        effMsg: (h === 0) ? effMsg : null,
+                                        targetName: defender.name
+                                    });
+                                }
+                                if (simState[targetIdx].currentHp <= 0) break;
+                            }
+
+                            if (hits > 1) {
+                                this.turnQueue.push({ type: 'text', msg: `${hits} 回当たった！` });
+                            }
+
+                            // Effects (Status, Stats, etc.)
+                            if (simState[targetIdx].currentHp > 0 || (effect.meta && effect.meta.statSelf)) {
+                                if (effect.meta) {
+                                    // Status
+                                    if (effect.meta.status) {
+                                        const chance = effect.meta.statusChance || 100;
+                                        if (Math.random() * 100 < chance) {
+                                            const map = { psn: '毒', par: '麻痺', brn: '火傷', frz: '凍り' };
+                                            this.turnQueue.push({ type: 'text', msg: `${defender.name} は ${map[effect.meta.status]} になった！ (未実装)` });
+                                        }
+                                    }
+                                    // Recoil
+                                    if (effect.meta.recoil && totalDmg > 0) {
+                                        const rec = Math.floor(totalDmg * effect.meta.recoil);
+                                        this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: rec, effMsg: '反動を受けた！', targetName: attacker.name });
+                                    }
+                                }
+
+                                // Stat Changes
+                                if (effect.statChanges) {
+                                    effect.statChanges.forEach(ch => {
+                                        // Determine target
+                                        const targetObj = (ch.target === 'self') ? attacker : defender;
+                                        const targetPName = (ch.target === 'self') ? attacker.name : defender.name;
+
+                                        // Apply (Camp -6 to 6)
+                                        if (!targetObj.ranks) targetObj.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0 };
+                                        targetObj.ranks[ch.stat] += ch.stage;
+                                        if (targetObj.ranks[ch.stat] > 6) targetObj.ranks[ch.stat] = 6;
+                                        if (targetObj.ranks[ch.stat] < -6) targetObj.ranks[ch.stat] = -6;
+
+                                        // Log
+                                        const statNames = { atk: '攻撃', def: '防御', spa: '特攻', spd: '特防', spe: '素早さ', eva: '回避率' };
+                                        const stageText = (ch.stage === 2) ? 'ぐーんと上がった'
+                                            : (ch.stage === 3) ? 'ぐぐーんと上がった'
+                                                : (ch.stage === 1) ? '上がった'
+                                                    : (ch.stage === -2) ? 'がくっと下がった'
+                                                        : '下がった';
+
+                                        this.turnQueue.push({
+                                            type: 'text',
+                                            msg: `${targetPName} の ${statNames[ch.stat]} が ${stageText}！`
+                                        });
+                                    });
+                                }
+                            }
+
+                            if (simState[targetIdx].currentHp <= 0) {
+                                this.turnQueue.push({
+                                    type: 'text',
+                                    msg: `${defender.name} は倒れた！`
+                                });
+                                this.turnQueue.push({
+                                    type: 'faint',
+                                    targetIdx: targetIdx
+                                });
+                            }
+                        }
+                    }
+                });
+
+                this.processNextAction();
             },
 
-            calcDamage: function (attacker, defender, move) {
+            processNextAction: function () {
+                if (this.turnQueue.length === 0) {
+                    // End of turn processing
+                    this.endTurn();
+                    return;
+                }
+
+                const action = this.turnQueue.shift();
+                const logBox = document.getElementById('battle-log');
+
+                const wait = (ms) => setTimeout(() => this.processNextAction(), ms);
+
+                if (action.type === 'text') {
+                    logBox.innerText += action.msg + "\n";
+                    logBox.scrollTop = logBox.scrollHeight;
+                    wait(800);
+                }
+                else if (action.type === 'damage') {
+                    const targetP = this.players[action.targetIdx];
+                    const active = targetP.team[targetP.activeIdx];
+                    active.currentHp -= action.damage;
+
+                    // Update UI
+                    this.updateHpDisplay();
+
+                    if (action.effMsg) {
+                        logBox.innerText += action.effMsg + "\n";
+                    }
+                    logBox.innerText += `(HP: ${active.currentHp}/${active.stats.hp})\n`;
+                    logBox.scrollTop = logBox.scrollHeight;
+
+                    wait(1000);
+                }
+                else if (action.type === 'switch') {
+                    const p = this.players[action.actorIdx];
+                    logBox.innerText += `${p.name} は ${action.oldName} を戻して ${action.newName} を繰り出した！\n`;
+                    p.activeIdx = action.newActiveIdx;
+                    this.updateHpDisplay();
+                    logBox.scrollTop = logBox.scrollHeight;
+                    wait(1500);
+                }
+                else if (action.type === 'faint') {
+                    logBox.innerText += `${action.targetName || 'ポケモン'} は倒れた！\n`;
+                    logBox.scrollTop = logBox.scrollHeight;
+                    this.updateHpDisplay();
+                    wait(1200);
+                }
+            },
+
+            endTurn: function () {
+                // Check if anyone dead needs replacement
+                const p1 = this.players[0];
+                const p2 = this.players[1];
+                const p1Dead = p1.team[p1.activeIdx].currentHp === 0;
+                const p2Dead = p2.team[p2.activeIdx].currentHp === 0;
+                const hasAlive = (p) => p.team.some(m => m.currentHp > 0);
+
+                if (p1Dead) {
+                    if (!hasAlive(p1)) { alert("Player 2 Wins!"); this.showScreen('screen-start'); return; }
+                    this.currentPlayerIndex = 0; this.showSwitchScreen(true); return;
+                }
+                if (p2Dead) {
+                    if (!hasAlive(p2)) { alert("Player 1 Wins!"); this.showScreen('screen-start'); return; }
+                    this.currentPlayerIndex = 1; this.showSwitchScreen(true); return;
+                }
+
+                // Show Next Turn Button or Auto
+                const btn = document.querySelector('#screen-result button');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.onclick = () => app.nextTurn();
+                }
+            },
+
+            calcDamage: function (attacker, defender, move, effect = null) {
                 const lv = attacker.lv;
                 const power = move.power;
                 if (power <= 0) return { damage: 0, superEffective: 1 };
 
-                let a = (move.category === 'physical') ? attacker.stats.atk : attacker.stats.spa;
-                let d = (move.category === 'physical') ? defender.stats.def : defender.stats.spd;
+                const atkRank = attacker.ranks ? attacker.ranks.atk : 0;
+                const defRank = defender.ranks ? defender.ranks.def : 0;
+                const spaRank = attacker.ranks ? attacker.ranks.spa : 0;
+                const spdRank = defender.ranks ? defender.ranks.spd : 0;
+
+                let a = (move.category === 'physical')
+                    ? Math.floor(attacker.stats.atk * this.getRankMultiplier(atkRank))
+                    : Math.floor(attacker.stats.spa * this.getRankMultiplier(spaRank));
+
+                let d = (move.category === 'physical')
+                    ? Math.floor(defender.stats.def * this.getRankMultiplier(defRank))
+                    : Math.floor(defender.stats.spd * this.getRankMultiplier(spdRank));
+
+                // Critical hits ignore negative attack drops (not implemented here for simplicity)
 
                 let baseDmg = Math.floor(Math.floor(Math.floor(2 * lv / 5 + 2) * power * a / d) / 50) + 2;
                 let multi = 1.0;
@@ -997,6 +1525,16 @@
                 });
                 multi *= typeEff;
                 if (attacker.types.includes(move.type)) multi *= 1.5;
+
+                // Crit (simplified)
+                const critRate = (effect && effect.meta && effect.meta.critRate) ? 2 : 0; // 0=1/24, 2=1/2
+                // Just random: 
+                const critChance = (critRate >= 2) ? 0.5 : 0.04;
+                if (Math.random() < critChance) {
+                    multi *= 1.5;
+                    // We can't push text here easily without callback/queue refactor, assume component handles 'Crit' text or ignore for now
+                }
+
                 const rnd = (Math.floor(Math.random() * 16) + 85) / 100;
 
                 return { damage: Math.floor(baseDmg * multi * rnd), superEffective: typeEff };
@@ -1031,21 +1569,36 @@
                 };
             },
 
+            getRankMultiplier: function (stage) {
+                if (stage >= 0) return (2 + stage) / 2;
+                else return 2 / (2 + Math.abs(stage));
+            },
+
             updateHpDisplay: function () {
                 [0, 1].forEach(i => {
                     const p = this.players[i];
                     if (!p) return;
                     const active = p.team[p.activeIdx];
                     const nameEl = document.getElementById(`res-p${i + 1}-name`);
-                    if (nameEl) nameEl.innerText = active.name;
                     const lvEl = document.getElementById(`res-p${i + 1}-lv`);
-                    if (lvEl) lvEl.innerText = active.lv;
-                    const pct = (active.currentHp / active.stats.hp) * 100;
                     const bar = document.getElementById(`res-hp-bar-p${i + 1}`);
                     const txt = document.getElementById(`res-hp-text-p${i + 1}`);
-                    if (bar) bar.style.width = pct + '%';
-                    if (txt) txt.innerText = `${active.currentHp}/${active.stats.hp}`;
-                    if (bar) this.setHpColor(bar, pct);
+
+                    if (nameEl) {
+                        nameEl.innerText = active.name;
+                        nameEl.style.opacity = active.currentHp === 0 ? '0.4' : '1';
+                    }
+                    if (lvEl) lvEl.innerText = active.lv;
+
+                    const pct = (active.currentHp / active.stats.hp) * 100;
+                    if (bar) {
+                        bar.style.width = pct + '%';
+                        this.setHpColor(bar, pct);
+                    }
+                    if (txt) {
+                        txt.innerText = `${active.currentHp}/${active.stats.hp}`;
+                        txt.style.opacity = active.currentHp === 0 ? '0.4' : '1';
+                    }
                 });
             },
 
@@ -1056,26 +1609,68 @@
                 else if (pct < 50) el.classList.add('hp-low');
             },
 
+            performForcedSwitch: function (newIdx) {
+                const p = this.players[this.currentPlayerIndex];
+                const oldName = p.team[p.activeIdx].name;
+                p.activeIdx = newIdx;
+                const newName = p.team[p.activeIdx].name;
+
+                // Check if we need to resume a "Death Check" loop or start next turn
+                // Logic: If this was a forced switch at end of turn...
+                // We should check if the OTHER player also needs to switch
+                // Or if we are done, proceed to nextTurn (which starts turn cycle for P1)
+
+                const p1Dead = this.players[0].team[this.players[0].activeIdx].currentHp === 0;
+                const p2Dead = this.players[1].team[this.players[1].activeIdx].currentHp === 0;
+
+                if (p1Dead) {
+                    this.currentPlayerIndex = 0;
+                    this.showSwitchScreen(true);
+                    return;
+                }
+                if (p2Dead) {
+                    this.currentPlayerIndex = 1;
+                    this.showSwitchScreen(true);
+                    return;
+                }
+
+                // If everyone alive, start fresh turn
+                this.nextTurn();
+            },
+
             showSwitchScreen: function (isForced) {
                 this.showScreen('screen-switch');
                 const p = this.players[this.currentPlayerIndex];
                 const switchMsgEl = document.getElementById('switch-msg');
-                if (switchMsgEl) switchMsgEl.innerText = isForced ? "強制交代: 選んでください" : "交代するポケモンを選択";
+                if (switchMsgEl) switchMsgEl.innerText = isForced ? "強制交代: 戦闘不能です。次を選んでください" : "交代するポケモンを選択";
+
+                const btnCancel = document.getElementById('btn-cancel-switch');
+                if (btnCancel) btnCancel.style.display = isForced ? 'none' : 'block';
+
                 const container = document.getElementById('switch-container');
                 if (!container) return;
                 container.innerHTML = '';
+
                 p.team.forEach((mon, idx) => {
                     if (idx === p.activeIdx) return;
                     const card = document.createElement('div');
                     card.className = 'switch-card';
+
                     if (mon.currentHp === 0) card.classList.add('disabled');
+
                     const nameSpan = document.createElement('span');
                     nameSpan.innerText = `${idx + 1}: ${mon.name} (${mon.currentHp}/${mon.stats.hp})`;
                     card.appendChild(nameSpan);
+
                     card.onclick = () => {
-                        if (mon.currentHp === 0 && !isForced) return;
-                        this.registerMove(-1, idx);
-                        this.showScreen('screen-input');
+                        if (mon.currentHp === 0) return;
+
+                        if (isForced) {
+                            this.performForcedSwitch(idx);
+                        } else {
+                            this.registerMove(-1, idx);
+                            this.showScreen('screen-input');
+                        }
                     };
                     container.appendChild(card);
                 });
