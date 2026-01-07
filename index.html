@@ -1050,7 +1050,7 @@
                         lv: lvEl ? parseInt(lvEl.value) || 50 : 50,
                         stats: stats,
                         currentHp: stats.hp,
-                        ranks: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0 },
+                        ranks: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 },
                         moves: moves,
                         types: [
                             t1El ? t1El.value : 'normal',
@@ -1209,13 +1209,13 @@
 
                 const ranksEl = document.getElementById('input-active-ranks');
                 if (ranksEl) {
-                    const r = activeMon.ranks || { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0 };
-                    const labels = { atk: '攻', def: '防', spa: '特攻', spd: '特防', spe: '素', eva: '回' };
+                    const r = activeMon.ranks || { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 };
+                    const labels = { atk: '攻', def: '防', spa: '特攻', spd: '特防', spe: '素', acc: '命', eva: '回' };
                     let txt = [];
-                    ['atk', 'def', 'spa', 'spd', 'spe', 'eva'].forEach(k => {
+                    ['atk', 'def', 'spa', 'spd', 'spe', 'acc', 'eva'].forEach(k => {
                         const val = r[k];
                         if (val !== 0) {
-                            txt.push(`${labels[k]}:${val > 0 ? '+' + val : val}`);
+                            txt.push(`${labels[k]}${val > 0 ? '+' : ''}${val}`);
                         }
                     });
                     ranksEl.innerText = txt.length > 0 ? txt.join(" ") : "ランク変化なし";
@@ -1386,28 +1386,28 @@
                         });
 
                         const moveData = moveDB[move.name] || move;
+                        const effect = moveData.effect || {};
 
                         // 1. Accuracy Check
                         let hit = true;
+                        const attackerAccRank = attacker.ranks ? attacker.ranks.acc : 0;
                         const defenderEvaRank = defender.ranks ? defender.ranks.eva : 0;
-                        const evaMult = this.getRankMultiplier(defenderEvaRank);
+                        const accMult = this.getAccRankMultiplier(attackerAccRank);
+                        const evaMult = this.getAccRankMultiplier(defenderEvaRank);
 
                         // Use CUSTOM_ACCURACY if available, otherwise moveData.accuracy
                         let accBase = CUSTOM_ACCURACY[move.name] !== undefined ? CUSTOM_ACCURACY[move.name] : (moveData.accuracy !== undefined ? moveData.accuracy : 100);
 
-                        // "Never Miss" flag
-                        if (!(moveData.effect && moveData.effect.flags && moveData.effect.flags.alwaysHit)) {
-                            // OHKO moves (ats 30% flat in many old gens, 30% here)
-                            if (Math.random() * 100 > (accBase / evaMult)) hit = false;
+                        // OHKO moves are "必中" (always pass this stage, then 30% inside)
+                        if (effect.meta && effect.meta.ohko) {
+                            hit = true;
+                        } else if (!(moveData.effect && moveData.effect.flags && moveData.effect.flags.alwaysHit)) {
+                            if (Math.random() * 100 > (accBase * accMult / evaMult)) hit = false;
                         }
 
                         if (!hit) {
                             this.turnQueue.push({ type: 'text', msg: '攻撃は外れた！' });
                         } else {
-                            const effect = moveData.effect || {};
-
-                            // ... (rest of the hit logic)
-
                             // Weather modification moves
                             if (effect.meta && effect.meta.weather) {
                                 this.turnQueue.push({ type: 'weather', weather: effect.meta.weather });
@@ -1432,8 +1432,13 @@
                                 } else if (effect.fixedDamage) {
                                     dmg = effect.fixedDamage;
                                 } else if (effect.meta && effect.meta.ohko) {
-                                    dmg = simState[targetIdx].currentHp;
-                                    effMsg = "一撃必殺！";
+                                    if (Math.random() < 0.3) {
+                                        dmg = simState[targetIdx].currentHp;
+                                        effMsg = "一撃必殺！";
+                                    } else {
+                                        dmg = 0;
+                                        effMsg = "攻撃は外れた！";
+                                    }
                                 } else {
                                     const res = this.calcDamage(attacker, defender, moveData, effect);
                                     dmg = res.damage;
@@ -1787,6 +1792,11 @@
             getRankMultiplier: function (stage) {
                 if (stage >= 0) return (2 + stage) / 2;
                 else return 2 / (2 + Math.abs(stage));
+            },
+
+            getAccRankMultiplier: function (stage) {
+                if (stage >= 0) return (3 + stage) / 3;
+                else return 3 / (3 + Math.abs(stage));
             },
 
             updateHpDisplay: function () {
