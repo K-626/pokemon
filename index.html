@@ -718,6 +718,7 @@
                 // 7. Multi Hit
                 if (str.match(/Hits 2–5 times/i)) { res.multihit = [2, 5]; }
                 if (str.match(/Hits twice/i) || str.includes('2回連続')) { res.multihit = [2, 2]; }
+                if (str.includes('ネズミざん') || str.match(/Hits 1–10 times/i)) { res.multihit = [1, 10]; }
 
                 // 8. Recoil
                 if (str.match(/recoil/i) || str.includes('反動')) { res.meta.recoil = 0.25; } // generic 1/4
@@ -726,7 +727,7 @@
                 if (str.match(/recovers.*damage/i) || str.includes('吸収')) { res.meta.drain = 0.5; }
 
                 // 10. OHKO
-                if (str.match(/One-hit KO/i) || str.includes('一撃必殺')) { res.meta.ohko = true; }
+                if (str.match(/One-hit KO/i) || str.includes('一撃必殺') || str.includes('一撃でひんしになる')) { res.meta.ohko = true; }
 
                 // 11. Weather
                 if (str.match(/sunny/i) || str.includes('にほんばれ')) { res.meta.weather = 'sun'; }
@@ -1401,7 +1402,8 @@
                         // OHKO moves are "必中" (always pass this stage, then 30% inside)
                         if (effect.meta && effect.meta.ohko) {
                             hit = true;
-                        } else if (!(moveData.effect && moveData.effect.flags && moveData.effect.flags.alwaysHit)) {
+                        } else if (!(effect.flags && effect.flags.alwaysHit)) {
+                            // Scale accuracy by ranks
                             if (Math.random() * 100 > (accBase * accMult / evaMult)) hit = false;
                         }
 
@@ -1419,10 +1421,15 @@
                             }
 
                             let totalDmg = 0;
+                            const attackerAccRankChain = attacker.ranks ? attacker.ranks.acc : 0;
+                            const defenderEvaRankChain = defender.ranks ? defender.ranks.eva : 0;
+                            const accMultChain = this.getAccRankMultiplier(attackerAccRankChain);
+                            const evaMultChain = this.getAccRankMultiplier(defenderEvaRankChain);
+
                             for (let h = 0; h < hits; h++) {
                                 // For "Nezumi-zan", each hit has its own accuracy check
                                 if (move.name === 'ネズミざん' && h > 0) {
-                                    if (Math.random() * 100 > accBase) break; // Miss ends the chain
+                                    if (Math.random() * 100 > (accBase * accMultChain / evaMultChain)) break; // Miss ends the chain
                                 }
 
                                 let dmg = 0;
