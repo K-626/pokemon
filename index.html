@@ -348,6 +348,10 @@
                     <span id="input-hp-text"></span>
                     <div id="input-active-ranks" style="font-size: 14px; margin-top: 5px; color: #444;"></div>
                 </div>
+                <!-- Weather Indicator -->
+                <div id="weather-indicator"
+                    style="background:#fff; padding:5px 10px; border-radius:5px; border:1px solid #ccc; font-weight:bold; height:fit-content;">
+                    天候: なし</div>
             </div>
 
             <h3>行動選択</h3>
@@ -436,6 +440,23 @@
             none: {}
         };
 
+        // Custom Accuracy Table (Used when CSV cannot be modified)
+        const CUSTOM_ACCURACY = {
+            'おうふくビンタ': 85, 'れんぞくパンチ': 85, 'メガトンパンチ': 85,
+            'しめつける': 90, 'たたきつける': 75, 'メガトンキック': 75,
+            'とびげり': 95, 'まわしげり': 85, 'みだれづき': 85,
+            'つのドリル': 30, 'とっしん': 85, 'ミサイルばり': 95,
+            'うたう': 55, 'ちょうおんぱ': 55, 'ハイドロポンプ': 80,
+            'ふぶき': 70, 'はかいこうせん': 90, 'じごくぐるま': 80,
+            'しびれごな': 75, 'ねむりごな': 75, 'どくのこな': 75,
+            'かみなり': 70, 'じわれ': 30, 'どくどく': 90,
+            'さいみんじゅつ': 60, 'やどりぎのタネ': 90, 'いやなおと': 85,
+            'きあいだま': 70, 'ダストシュート': 80, 'ストーンエッジ': 80,
+            'じゃれつく': 90, 'ネズミざん': 90, 'かかとおとし': 90,
+            'がんせきアックス': 90, 'みずあめボム': 85, 'シャカシャカほう': 90,
+            'パワフルエッジ': 95
+        };
+
         const NATURE_TABLE = {
             "1.0": { name: "補正なし", up: null, down: null },
             "adamant": { name: "いじっぱり", up: "atk", down: "spa" },
@@ -469,6 +490,9 @@
             turn: 0,
             currentPlayerIndex: 0,
             gameActive: false,
+            weather: 'none',
+            weatherTurns: 0,
+            endOfTurnStage: 0, // 0: not started, 1: damage processed, 2: completed
 
             // init: safer with element existence checks
             init: function () {
@@ -557,6 +581,7 @@
                 const idxCat = find(['分類', 'category', 'cat']);
                 const idxPower = find(['威力', 'power']);
                 const idxAcc = find(['命中', 'accuracy', 'acc']);
+                const idxPriority = find(['優先度', 'priority', 'pri']);
                 const idxEffect = find(['効果', 'effect']);
 
                 if (idxName === -1) {
@@ -589,6 +614,7 @@
                             : (idxCat !== -1 && (row[idxCat] === '特殊' || row[idxCat] === 'special' || row[idxCat] === 'とくしゅ')) ? 'special' : 'physical',
                         power: (idxPower !== -1) ? (parseInt(row[idxPower]) || 0) : 0,
                         accuracy: (idxAcc !== -1) ? (parseInt(row[idxAcc]) || 100) : 100,
+                        priority: (idxPriority !== -1) ? (parseInt(row[idxPriority]) || 0) : 0,
                         effect: this.parseMoveEffect(effStr)
                     };
                     count++;
@@ -701,6 +727,12 @@
 
                 // 10. OHKO
                 if (str.match(/One-hit KO/i) || str.includes('一撃必殺')) { res.meta.ohko = true; }
+
+                // 11. Weather
+                if (str.match(/sunny/i) || str.includes('にほんばれ')) { res.meta.weather = 'sun'; }
+                if (str.match(/rain/i) || str.includes('あまごい')) { res.meta.weather = 'rain'; }
+                if (str.match(/sandstorm/i) || str.includes('すなあらし')) { res.meta.weather = 'sandstorm'; }
+                if (str.match(/snow/i) || str.includes('ゆきげしき')) { res.meta.weather = 'snow'; }
 
                 // 12. Fixed Damage
                 const fixed = str.match(/Inflicts (\d+) damage/i);
@@ -1023,7 +1055,9 @@
                         types: [
                             t1El ? t1El.value : 'normal',
                             t2El ? t2El.value : 'none'
-                        ]
+                        ],
+                        status: null, // { condition: 'brn'|'par'|'psn'|'slp'|'frz', turns: N }
+                        item: document.getElementById(`${prefix}_item`) ? document.getElementById(`${prefix}_item`).value : ""
                     });
                 }
                 if (this.players.length <= pIdx) this.players[pIdx] = {};
@@ -1110,6 +1144,9 @@
                     return;
                 }
                 this.turn = 0;
+                this.weather = 'none';
+                this.weatherTurns = 0;
+                this.endOfTurnStage = 0;
                 this.updateHpDisplay();
                 this.startTurnCycle();
             },
@@ -1155,7 +1192,11 @@
                 const headerEl = document.getElementById('input-player-header');
                 if (headerEl) headerEl.innerText = `${p.name}: ${activeMon.name} の行動`;
                 const nameEl = document.getElementById('input-active-name');
-                if (nameEl) nameEl.innerText = activeMon.name;
+                if (nameEl) {
+                    const statusMap = { brn: ' [火傷]', par: ' [麻痺]', psn: ' [毒]', slp: ' [眠り]', frz: ' [氷]' };
+                    const statusText = activeMon.status ? statusMap[activeMon.status.condition] : "";
+                    nameEl.innerText = activeMon.name + statusText;
+                }
                 const hpTextEl = document.getElementById('input-hp-text');
                 if (hpTextEl) hpTextEl.innerText = `${activeMon.currentHp}/${activeMon.stats.hp}`;
 
@@ -1180,6 +1221,14 @@
                     ranksEl.innerText = txt.length > 0 ? txt.join(" ") : "ランク変化なし";
                 }
 
+                // Weather Indicator update
+                const weatherEl = document.getElementById('weather-indicator');
+                if (weatherEl) {
+                    const wMap = { none: 'なし', sun: '晴れ', rain: '雨', sandstorm: '砂あらし', snow: '雪' };
+                    weatherEl.innerText = `天候: ${wMap[this.weather]}`;
+                    weatherEl.style.backgroundColor = this.weather === 'none' ? '#fff' : '#fff9c4';
+                }
+
                 const container = document.getElementById('move-buttons');
                 if (container) {
                     container.innerHTML = '';
@@ -1196,10 +1245,11 @@
             },
 
             registerMove: function (moveIdx, switchIdx = null) {
+                const player = this.players[this.currentPlayerIndex];
                 if (moveIdx === -1 && switchIdx !== null) {
-                    this.players[this.currentPlayerIndex].action = { type: 'switch', switchIdx: switchIdx };
+                    player.action = { type: 'switch', switchIdx: switchIdx };
                 } else {
-                    this.players[this.currentPlayerIndex].action = { type: 'move', moveIdx: moveIdx };
+                    player.action = { type: 'move', moveIdx: moveIdx };
                 }
 
                 if (this.currentPlayerIndex === 0) {
@@ -1208,6 +1258,11 @@
                 } else {
                     this.resolveTurn();
                 }
+            },
+
+            resetTurnActions: function () {
+                this.players.forEach(p => p.action = null);
+                this.currentPlayerIndex = 0;
             },
 
             resolveTurn: function () {
@@ -1220,6 +1275,7 @@
                 // ログ初期化
                 const logBox = document.getElementById('battle-log');
                 logBox.innerText = `--- ターン ${++this.turn} ---\n`;
+                this.endOfTurnStage = 0;
 
                 this.turnQueue = [];
 
@@ -1237,14 +1293,24 @@
                 let p1Speed = getSpeed(p1);
                 let p2Speed = getSpeed(p2);
 
+                // Priority Logic
+                const getPriority = (p) => {
+                    const act = p.action;
+                    if (act.type === 'switch') return 6;
+                    const mon = p.team[p.activeIdx];
+                    const move = mon.moves[act.moveIdx];
+                    const moveData = moveDB[move.name] || move;
+                    return moveData.priority || 0;
+                };
+
+                let p1Pri = getPriority(p1);
+                let p2Pri = getPriority(p2);
+
                 let order = [];
-                // Priority: Switch > Move
-                if (p1Act.type === 'switch' && p2Act.type !== 'switch') order = [0, 1];
-                else if (p2Act.type === 'switch' && p1Act.type !== 'switch') order = [1, 0];
-                else if (p1Act.type === 'switch' && p2Act.type === 'switch') {
-                    order = (p1Speed >= p2Speed) ? [0, 1] : [1, 0];
-                } else {
-                    // Both Move
+                if (p1Pri > p2Pri) order = [0, 1];
+                else if (p2Pri > p1Pri) order = [1, 0];
+                else {
+                    // Tie-break by Speed
                     order = (p1Speed >= p2Speed) ? [0, 1] : [1, 0];
                 }
 
@@ -1264,14 +1330,39 @@
                     // Dead check (if killed by first mover)
                     if (simState[actorIdx].currentHp <= 0) return;
 
-                    const activeMonSim = actorP.team[simActiveIdx[actorIdx]];
+                    const attacker = actorP.team[simActiveIdx[actorIdx]];
+                    const defender = targetP.team[simActiveIdx[targetIdx]];
 
                     // Paralysis Check
                     if (act.type === 'move') {
-                        if (activeMonSim.status && activeMonSim.status.condition === 'par') {
+                        // Freeze check
+                        if (attacker.status && attacker.status.condition === 'frz') {
+                            if (Math.random() < 0.2) {
+                                this.turnQueue.push({ type: 'text', msg: `${attacker.name} のこおりがとけた！` });
+                                attacker.status = null;
+                            } else {
+                                this.turnQueue.push({ type: 'text', msg: `${attacker.name} はこおってしまって動けない！` });
+                                return;
+                            }
+                        }
+
+                        // Sleep check
+                        if (attacker.status && attacker.status.condition === 'slp') {
+                            attacker.status.turns--;
+                            if (attacker.status.turns <= 0) {
+                                this.turnQueue.push({ type: 'text', msg: `${attacker.name} は目をさました！` });
+                                attacker.status = null;
+                            } else {
+                                this.turnQueue.push({ type: 'text', msg: `${attacker.name} はぐうぐう眠っている...` });
+                                return;
+                            }
+                        }
+
+                        // Paralysis check
+                        if (attacker.status && attacker.status.condition === 'par') {
                             if (Math.random() < 0.25) {
-                                this.turnQueue.push({ type: 'text', msg: `${activeMonSim.name} は体がしびれて動けない！` });
-                                return; // Skip turn
+                                this.turnQueue.push({ type: 'text', msg: `${attacker.name} は体がしびれて動けない！` });
+                                return;
                             }
                         }
                     }
@@ -1287,8 +1378,6 @@
                         simActiveIdx[actorIdx] = act.switchIdx;
                         simState[actorIdx].currentHp = actorP.team[act.switchIdx].currentHp;
                     } else if (act.type === 'move') {
-                        const attacker = actorP.team[simActiveIdx[actorIdx]];
-                        const defender = targetP.team[simActiveIdx[targetIdx]];
                         const move = attacker.moves[act.moveIdx];
 
                         this.turnQueue.push({
@@ -1302,9 +1391,13 @@
                         let hit = true;
                         const defenderEvaRank = defender.ranks ? defender.ranks.eva : 0;
                         const evaMult = this.getRankMultiplier(defenderEvaRank);
-                        const accBase = (moveData.accuracy !== undefined) ? moveData.accuracy : 100;
 
+                        // Use CUSTOM_ACCURACY if available, otherwise moveData.accuracy
+                        let accBase = CUSTOM_ACCURACY[move.name] !== undefined ? CUSTOM_ACCURACY[move.name] : (moveData.accuracy !== undefined ? moveData.accuracy : 100);
+
+                        // "Never Miss" flag
                         if (!(moveData.effect && moveData.effect.flags && moveData.effect.flags.alwaysHit)) {
+                            // OHKO moves (ats 30% flat in many old gens, 30% here)
                             if (Math.random() * 100 > (accBase / evaMult)) hit = false;
                         }
 
@@ -1312,6 +1405,14 @@
                             this.turnQueue.push({ type: 'text', msg: '攻撃は外れた！' });
                         } else {
                             const effect = moveData.effect || {};
+
+                            // ... (rest of the hit logic)
+
+                            // Weather modification moves
+                            if (effect.meta && effect.meta.weather) {
+                                this.turnQueue.push({ type: 'weather', weather: effect.meta.weather });
+                            }
+
                             let hits = 1;
                             if (effect.multihit) {
                                 hits = Math.floor(Math.random() * (effect.multihit[1] - effect.multihit[0] + 1)) + effect.multihit[0];
@@ -1319,6 +1420,11 @@
 
                             let totalDmg = 0;
                             for (let h = 0; h < hits; h++) {
+                                // For "Nezumi-zan", each hit has its own accuracy check
+                                if (move.name === 'ネズミざん' && h > 0) {
+                                    if (Math.random() * 100 > accBase) break; // Miss ends the chain
+                                }
+
                                 let dmg = 0;
                                 let effMsg = "";
 
@@ -1329,7 +1435,7 @@
                                     dmg = simState[targetIdx].currentHp;
                                     effMsg = "一撃必殺！";
                                 } else {
-                                    const res = this.calcDamage(attacker, defender, move, effect);
+                                    const res = this.calcDamage(attacker, defender, moveData, effect);
                                     dmg = res.damage;
                                     if (res.superEffective > 1) effMsg = "効果はバツグンだ！";
                                     else if (res.superEffective === 0) effMsg = "効果がないようだ...";
@@ -1339,6 +1445,7 @@
 
                                 if (dmg > simState[targetIdx].currentHp) dmg = simState[targetIdx].currentHp;
                                 simState[targetIdx].currentHp -= dmg;
+                                if (simState[targetIdx].currentHp < 0) simState[targetIdx].currentHp = 0;
                                 totalDmg += dmg;
 
                                 if (move.category !== 'status') {
@@ -1350,7 +1457,10 @@
                                         targetName: defender.name
                                     });
                                 }
-                                if (simState[targetIdx].currentHp <= 0) break;
+                                if (simState[targetIdx].currentHp <= 0) {
+                                    hits = h + 1; // Correct the hit count for log
+                                    break;
+                                }
                             }
 
                             if (hits > 1) {
@@ -1360,17 +1470,32 @@
                             // Effects (Status, Stats, etc.)
                             if (simState[targetIdx].currentHp > 0 || (effect.meta && effect.meta.statSelf)) {
                                 if (effect.meta) {
-                                    // Status
-                                    if (effect.meta.status) {
+                                    // Status (Application)
+                                    if (effect.meta.status && !defender.status) {
                                         const chance = effect.meta.statusChance || 100;
                                         if (Math.random() * 100 < chance) {
-                                            const map = { psn: '毒', par: '麻痺', brn: '火傷', frz: '凍り' };
-                                            this.turnQueue.push({ type: 'text', msg: `${defender.name} は ${map[effect.meta.status]} になった！ (未実装)` });
+                                            const map = { psn: 'どく', par: 'まひ', brn: 'やけど', frz: 'こおり', slp: 'ねむり' };
+                                            let turns = 0;
+                                            if (effect.meta.status === 'slp') turns = Math.floor(Math.random() * 3) + 1; // 1-3 turns
+
+                                            // Type immunity checks (simplified)
+                                            let immune = false;
+                                            if (effect.meta.status === 'brn' && defender.types.includes('fire')) immune = true;
+                                            if (effect.meta.status === 'psn' && (defender.types.includes('poison') || defender.types.includes('steel'))) immune = true;
+                                            if (effect.meta.status === 'par' && defender.types.includes('electric')) immune = true;
+                                            if (effect.meta.status === 'frz' && defender.types.includes('ice')) immune = true;
+
+                                            if (!immune) {
+                                                defender.status = { condition: effect.meta.status, turns: turns };
+                                                this.turnQueue.push({ type: 'text', msg: `${defender.name} は ${map[effect.meta.status]} になった！` });
+                                            }
                                         }
                                     }
                                     // Recoil
                                     if (effect.meta.recoil && totalDmg > 0) {
                                         const rec = Math.floor(totalDmg * effect.meta.recoil);
+                                        simState[actorIdx].currentHp -= rec;
+                                        if (simState[actorIdx].currentHp < 0) simState[actorIdx].currentHp = 0;
                                         this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: rec, effMsg: '反動を受けた！', targetName: attacker.name });
                                     }
                                 }
@@ -1442,12 +1567,14 @@
                     const targetP = this.players[action.targetIdx];
                     const active = targetP.team[targetP.activeIdx];
                     active.currentHp -= action.damage;
+                    if (active.currentHp < 0) active.currentHp = 0;
 
                     // Update UI
                     this.updateHpDisplay();
 
-                    if (action.effMsg) {
-                        logBox.innerText += action.effMsg + "\n";
+                    const logMsg = action.effMsg || action.msg;
+                    if (logMsg) {
+                        logBox.innerText += logMsg + "\n";
                     }
                     logBox.innerText += `(HP: ${active.currentHp}/${active.stats.hp})\n`;
                     logBox.scrollTop = logBox.scrollHeight;
@@ -1468,22 +1595,88 @@
                     this.updateHpDisplay();
                     wait(1200);
                 }
+                else if (action.type === 'weather') {
+                    this.weather = action.weather;
+                    this.weatherTurns = 5; // Default 5 turns
+                    const map = { sun: 'ひざしがつよい', rain: 'あめがふりだした', sandstorm: 'すなあらしがふきあれた', snow: 'ゆきがふりだした' };
+                    logBox.innerText += `${map[action.weather]}！\n`;
+                    logBox.scrollTop = logBox.scrollHeight;
+                    wait(1000);
+                }
             },
 
             endTurn: function () {
-                // Check if anyone dead needs replacement
+                const logBox = document.getElementById('battle-log');
                 const p1 = this.players[0];
                 const p2 = this.players[1];
-                const p1Dead = p1.team[p1.activeIdx].currentHp === 0;
-                const p2Dead = p2.team[p2.activeIdx].currentHp === 0;
                 const hasAlive = (p) => p.team.some(m => m.currentHp > 0);
 
+                // End of turn damage/effects queue
+                let endQueue = [];
+
+                if (this.endOfTurnStage === 0) {
+                    this.endOfTurnStage = 1;
+                    // Weather
+                    if (this.weather !== 'none') {
+                        this.weatherTurns--;
+                        if (this.weatherTurns <= 0) {
+                            endQueue.push({ type: 'text', msg: 'てんきがもとにもどった。' });
+                            this.weather = 'none';
+                        } else {
+                            // Sandstorm damage
+                            [p1, p2].forEach((p, idx) => {
+                                const mon = p.team[p.activeIdx];
+                                if (this.weather === 'sandstorm' && mon.currentHp > 0) {
+                                    if (!mon.types.includes('rock') && !mon.types.includes('ground') && !mon.types.includes('steel')) {
+                                        const dmg = Math.floor(mon.stats.hp / 16) || 1;
+                                        endQueue.push({ type: 'damage', targetIdx: idx, damage: dmg, msg: 'すなあらしのダメージをうけている！' });
+                                    }
+                                }
+                            });
+                        }
+                    }
+
+                    // Status Damage
+                    [p1, p2].forEach((p, idx) => {
+                        const mon = p.team[p.activeIdx];
+                        if (mon.currentHp > 0 && mon.status) {
+                            if (mon.status.condition === 'brn') {
+                                const dmg = Math.floor(mon.stats.hp / 16) || 1;
+                                endQueue.push({ type: 'damage', targetIdx: idx, damage: dmg, msg: 'やけどのダメージをうけている！' });
+                            } else if (mon.status.condition === 'psn') {
+                                const dmg = Math.floor(mon.stats.hp / 8) || 1;
+                                endQueue.push({ type: 'damage', targetIdx: idx, damage: dmg, msg: 'どくのダメージをうけている！' });
+                            }
+                        }
+                    });
+
+                    if (endQueue.length > 0) {
+                        // Temporary merge to turnQueue to process them
+                        this.turnQueue = endQueue;
+                        this.processNextAction();
+                        return;
+                    }
+                }
+
+                this.endOfTurnStage = 2; // Completed
+                // Check if anyone dead needs replacement
+                const p1Dead = p1.team[p1.activeIdx].currentHp === 0;
+                const p2Dead = p2.team[p2.activeIdx].currentHp === 0;
+
                 if (p1Dead) {
-                    if (!hasAlive(p1)) { alert("Player 2 Wins!"); this.showScreen('screen-start'); return; }
+                    if (!hasAlive(p1)) {
+                        alert("Player 2 Wins!");
+                        location.reload(); // Simple reset
+                        return;
+                    }
                     this.currentPlayerIndex = 0; this.showSwitchScreen(true); return;
                 }
                 if (p2Dead) {
-                    if (!hasAlive(p2)) { alert("Player 1 Wins!"); this.showScreen('screen-start'); return; }
+                    if (!hasAlive(p2)) {
+                        alert("Player 1 Wins!");
+                        location.reload();
+                        return;
+                    }
                     this.currentPlayerIndex = 1; this.showSwitchScreen(true); return;
                 }
 
@@ -1491,7 +1684,10 @@
                 const btn = document.querySelector('#screen-result button');
                 if (btn) {
                     btn.disabled = false;
-                    btn.onclick = () => app.nextTurn();
+                    btn.onclick = () => {
+                        this.resetTurnActions();
+                        app.nextTurn();
+                    };
                 }
             },
 
@@ -1513,10 +1709,31 @@
                     ? Math.floor(defender.stats.def * this.getRankMultiplier(defRank))
                     : Math.floor(defender.stats.spd * this.getRankMultiplier(spdRank));
 
-                // Critical hits ignore negative attack drops (not implemented here for simplicity)
+                // Burn
+                if (attacker.status && attacker.status.condition === 'brn' && move.category === 'physical') {
+                    a = Math.floor(a * 0.5);
+                }
+
+                // Weather boosts/drops
+                let weatherMult = 1.0;
+                if (this.weather === 'sun') {
+                    if (move.type === 'fire') weatherMult = 1.5;
+                    if (move.type === 'water') weatherMult = 0.5;
+                } else if (this.weather === 'rain') {
+                    if (move.type === 'water') weatherMult = 1.5;
+                    if (move.type === 'fire') weatherMult = 0.5;
+                }
+
+                // Weather Def/SpD boosts
+                if (this.weather === 'sandstorm' && defender.types.includes('rock') && move.category === 'special') {
+                    d = Math.floor(d * 1.5);
+                }
+                if (this.weather === 'snow' && defender.types.includes('ice') && move.category === 'physical') {
+                    d = Math.floor(d * 1.5);
+                }
 
                 let baseDmg = Math.floor(Math.floor(Math.floor(2 * lv / 5 + 2) * power * a / d) / 50) + 2;
-                let multi = 1.0;
+                let multi = 1.0 * weatherMult;
                 let typeEff = 1.0;
                 defender.types.forEach(defT => {
                     if (defT !== 'none' && TYPE_CHART[move.type] && TYPE_CHART[move.type][defT] !== undefined) {
@@ -1527,12 +1744,10 @@
                 if (attacker.types.includes(move.type)) multi *= 1.5;
 
                 // Crit (simplified)
-                const critRate = (effect && effect.meta && effect.meta.critRate) ? 2 : 0; // 0=1/24, 2=1/2
-                // Just random: 
+                const critRate = (effect && effect.meta && effect.meta.critRate) ? 2 : 0;
                 const critChance = (critRate >= 2) ? 0.5 : 0.04;
                 if (Math.random() < critChance) {
                     multi *= 1.5;
-                    // We can't push text here easily without callback/queue refactor, assume component handles 'Crit' text or ignore for now
                 }
 
                 const rnd = (Math.floor(Math.random() * 16) + 85) / 100;
@@ -1585,7 +1800,9 @@
                     const txt = document.getElementById(`res-hp-text-p${i + 1}`);
 
                     if (nameEl) {
-                        nameEl.innerText = active.name;
+                        const statusMap = { brn: ' [火傷]', par: ' [麻痺]', psn: ' [毒]', slp: ' [眠り]', frz: ' [氷]' };
+                        const statusText = active.status ? statusMap[active.status.condition] : "";
+                        nameEl.innerText = active.name + statusText;
                         nameEl.style.opacity = active.currentHp === 0 ? '0.4' : '1';
                     }
                     if (lvEl) lvEl.innerText = active.lv;
@@ -1600,6 +1817,12 @@
                         txt.style.opacity = active.currentHp === 0 ? '0.4' : '1';
                     }
                 });
+
+                // Weather Display (Update a generic element or log)
+                const logBox = document.getElementById('battle-log');
+                if (logBox && this.weather !== 'none') {
+                    // We could add a persistent weather indicator in future turns
+                }
             },
 
             setHpColor: function (el, pct) {
@@ -1669,7 +1892,6 @@
                             this.performForcedSwitch(idx);
                         } else {
                             this.registerMove(-1, idx);
-                            this.showScreen('screen-input');
                         }
                     };
                     container.appendChild(card);
@@ -1690,9 +1912,7 @@
                 this.showScreen('screen-curtain');
                 const pNameEl = document.getElementById('curtain-msg');
                 if (pNameEl) pNameEl.innerText = "ターン終了 - 次へ";
-                // Reset actions
-                this.players.forEach(p => p.action = null);
-                this.currentPlayerIndex = 0;
+                this.startTurnCycle();
             }
         };
 
