@@ -638,6 +638,11 @@
                 });
             },
 
+            /**
+             * 技の「効果」テキストを解析し、構造化されたメタデータに変換します。
+             * @param {string} str CSVの「効果」列の文字列
+             * @returns {Object} { meta: {status, statusChance, recoil, ...}, statChanges: [...], flags: {alwaysHit, ...} }
+             */
             parseMoveEffect: function (str) {
                 // Parse the "Effect" column based on user rules
                 const res = {
@@ -1266,6 +1271,10 @@
                 this.currentPlayerIndex = 0;
             },
 
+            /**
+             * ターンの全アクションを順序立てて実行します。
+             * 処理順: 1. 行動順の決定 -> 2. 状態異常チェック -> 3. 行動実行 (命中判定等) -> 4. ダメージ・追加効果
+             */
             resolveTurn: function () {
                 this.showScreen('screen-result');
                 const btn = document.querySelector('#screen-result button');
@@ -1273,7 +1282,7 @@
                 const p1 = this.players[0];
                 const p2 = this.players[1];
 
-                // ログ初期化
+                // ログ初期化とターン数カウント
                 const logBox = document.getElementById('battle-log');
                 logBox.innerText = `--- ターン ${++this.turn} ---\n`;
                 this.endOfTurnStage = 0;
@@ -1283,7 +1292,8 @@
                 let p1Act = p1.action;
                 let p2Act = p2.action;
 
-                // Speed Check
+                // --- 1. 行動順の計算 (Priority & Speed) ---
+                // スピード計算 (ランク補正 + スカーフ + 麻痺補正)
                 const getSpeed = (p) => {
                     const mon = p.team[p.activeIdx];
                     let s = mon.stats.spe * this.getRankMultiplier(mon.ranks ? mon.ranks.spe : 0);
@@ -1294,7 +1304,7 @@
                 let p1Speed = getSpeed(p1);
                 let p2Speed = getSpeed(p2);
 
-                // Priority Logic
+                // 優先度判定: 入れ替え(6) > 技の優先度(神速等) > 素早さ
                 const getPriority = (p) => {
                     const act = p.action;
                     if (act.type === 'switch') return 6;
@@ -1311,7 +1321,7 @@
                 if (p1Pri > p2Pri) order = [0, 1];
                 else if (p2Pri > p1Pri) order = [1, 0];
                 else {
-                    // Tie-break by Speed
+                    // 同優先度の場合は素早さ比較 (乱数要素は簡略化のため無し)
                     order = (p1Speed >= p2Speed) ? [0, 1] : [1, 0];
                 }
 
@@ -1389,27 +1399,29 @@
                         const moveData = moveDB[move.name] || move;
                         const effect = moveData.effect || {};
 
-                        // 1. Accuracy Check
+                        // --- 命中判定ロジック ---
+                        // 1. 命中・回避ランクの計算 (3/3をベースとした補正)
                         let hit = true;
                         const attackerAccRank = attacker.ranks ? attacker.ranks.acc : 0;
                         const defenderEvaRank = defender.ranks ? defender.ranks.eva : 0;
                         const accMult = this.getAccRankMultiplier(attackerAccRank);
                         const evaMult = this.getAccRankMultiplier(defenderEvaRank);
 
-                        // Use CUSTOM_ACCURACY if available, otherwise moveData.accuracy
+                        // 2. 基本命中率の取得 (カスタムテーブル > CSV)
                         let accBase = CUSTOM_ACCURACY[move.name] !== undefined ? CUSTOM_ACCURACY[move.name] : (moveData.accuracy !== undefined ? moveData.accuracy : 100);
 
-                        // OHKO moves are "必中" (always pass this stage, then 30% inside)
+                        // 一撃必殺技は「必中」として扱い、ダメージ計算段階で命中率(30%)を処理する
                         if (effect.meta && effect.meta.ohko) {
                             hit = true;
                         } else if (!(effect.flags && effect.flags.alwaysHit)) {
-                            // Scale accuracy by ranks
+                            // 通常の技の命中チェック: (基本命中 * 命中ランク) / 回避ランク
                             if (Math.random() * 100 > (accBase * accMult / evaMult)) hit = false;
                         }
 
                         if (!hit) {
                             this.turnQueue.push({ type: 'text', msg: '攻撃は外れた！' });
                         } else {
+                            // --- 行動成功時 (天候変化・連続攻撃等) ---
                             // Weather modification moves
                             if (effect.meta && effect.meta.weather) {
                                 this.turnQueue.push({ type: 'weather', weather: effect.meta.weather });
@@ -1421,24 +1433,29 @@
                             }
 
                             let totalDmg = 0;
+                            // 連続技用の命中ランク計算 (ネズミざん等で使用)
                             const attackerAccRankChain = attacker.ranks ? attacker.ranks.acc : 0;
                             const defenderEvaRankChain = defender.ranks ? defender.ranks.eva : 0;
                             const accMultChain = this.getAccRankMultiplier(attackerAccRankChain);
                             const evaMultChain = this.getAccRankMultiplier(defenderEvaRankChain);
 
                             for (let h = 0; h < hits; h++) {
-                                // For "Nezumi-zan", each hit has its own accuracy check
+                                // 「ネズミざん」は1発ごとに命中判定を行い、外れた時点で終了
                                 if (move.name === 'ネズミざん' && h > 0) {
-                                    if (Math.random() * 100 > (accBase * accMultChain / evaMultChain)) break; // Miss ends the chain
+                                    if (Math.random() * 100 > (accBase * accMultChain / evaMultChain)) break;
                                 }
 
                                 let dmg = 0;
                                 let effMsg = "";
 
                                 if (move.category === 'status') {
+                                    // 変化技はダメージなし
                                 } else if (effect.fixedDamage) {
+                                    // 固定ダメージ (ソニックブーム等)
                                     dmg = effect.fixedDamage;
                                 } else if (effect.meta && effect.meta.ohko) {
+                                    // 一撃必殺技の30%判定
+                                    // OHKOは必中フラグを立ててここに来るが、実際の成功率は30%固定
                                     if (Math.random() < 0.3) {
                                         dmg = simState[targetIdx].currentHp;
                                         effMsg = "一撃必殺！";
@@ -1447,19 +1464,23 @@
                                         effMsg = "攻撃は外れた！";
                                     }
                                 } else {
+                                    // 通常ダメージ計算
                                     const res = this.calcDamage(attacker, defender, moveData, effect);
                                     dmg = res.damage;
                                     if (res.superEffective > 1) effMsg = "効果はバツグンだ！";
                                     else if (res.superEffective === 0) effMsg = "効果がないようだ...";
                                     else if (res.superEffective < 1) effMsg = "効果はいまひとつのようだ...";
+                                    // 1ダメージ保証
                                     if (res.superEffective > 0 && dmg === 0) dmg = 1;
                                 }
 
+                                // HPを減らす処理
                                 if (dmg > simState[targetIdx].currentHp) dmg = simState[targetIdx].currentHp;
                                 simState[targetIdx].currentHp -= dmg;
                                 if (simState[targetIdx].currentHp < 0) simState[targetIdx].currentHp = 0;
                                 totalDmg += dmg;
 
+                                // ダメージのアニメーション/消尽エフェクトをキューに追加
                                 if (move.category !== 'status') {
                                     this.turnQueue.push({
                                         type: 'damage',
@@ -1469,8 +1490,9 @@
                                         targetName: defender.name
                                     });
                                 }
+                                // 相手が倒れたら打ち切り
                                 if (simState[targetIdx].currentHp <= 0) {
-                                    hits = h + 1; // Correct the hit count for log
+                                    hits = h + 1;
                                     break;
                                 }
                             }
