@@ -631,7 +631,7 @@
                     if (drains.includes(name)) m.effect.meta.drain = 0.5;
 
                     // Protection
-                    const protects = ['ままもる', 'まもる', 'みきり', 'トーチカ', 'ブロッキング', 'ニードルガード', 'たたみがえし', 'キングシールド', 'トリックガード', 'スレッドトラップ', 'かえんのまもり'];
+                    const protects = ['まもる', 'みきり', 'トーチカ', 'ブロッキング', 'ニードルガード', 'たたみがえし', 'キングシールド', 'トリックガード', 'スレッドトラップ', 'かえんのまもり'];
                     if (protects.includes(name)) {
                         m.priority = 4;
                         m.effect.meta.protect = true;
@@ -657,6 +657,27 @@
                     if (name === 'まきびし') m.effect.meta.hazard = 'spikes';
                     if (name === 'ステルスロック') m.effect.meta.hazard = 'rocks';
                     if (name === 'どくびし') m.effect.meta.hazard = 'tspikes';
+
+                    // Charge Moves
+                    const chargeMoves = [
+                        'かまいたち', 'ロケットずつき', 'ゴッドバード', 'フリーズボルト', 'コールドフレア',
+                        'ソーラーブレード', 'ジオコントロール', 'メテオビーム', 'ソーラービーム',
+                        'あなをほる', 'そらをとぶ', 'ダイビング', 'とびはねる', 'シャドーダイブ', 'ゴーストダイブ'
+                    ];
+                    if (chargeMoves.includes(name)) m.effect.meta.charge = true;
+                    if (name === 'ロケットずつき') { m.effect.meta.chargeEffect = 'def_+1'; m.effect.statChanges = []; }
+                    if (name === 'メテオビーム') { m.effect.meta.chargeEffect = 'spa_+1'; m.effect.statChanges = []; }
+
+                    if (name === 'あなをほる') m.effect.meta.startInvulnerable = 'dig';
+                    if (name === 'そらをとぶ') m.effect.meta.startInvulnerable = 'fly';
+                    if (name === 'とびはねる') m.effect.meta.startInvulnerable = 'bounce';
+                    if (name === 'ダイビング') m.effect.meta.startInvulnerable = 'dive';
+                    if (name === 'シャドーダイブ') m.effect.meta.startInvulnerable = 'shadow';
+                    if (name === 'ゴーストダイブ') m.effect.meta.startInvulnerable = 'phantom';
+
+                    // OHKO Moves (Explicit)
+                    const ohkoMoves = ['じわれ', 'つのドリル', 'ハサミギロチン', 'ぜったいれいど'];
+                    if (ohkoMoves.includes(name)) m.effect.meta.ohko = true;
 
                     // Recharge Moves
                     const recharges = [
@@ -1003,10 +1024,46 @@
                                 <label>持ち物</label>
                                 <select id="${prefix}_item">
                                     <option value="">なし</option>
-                                    <option value="choice_band">こだわりハチマキ(A1.5倍/技固定)</option>
-                                    <option value="choice_specs">こだわりメガネ(C1.5倍/技固定)</option>
-                                    <option value="choice_scarf">こだわりスカーフ(S1.5倍/技固定)</option>
-                                    <option value="assault_vest">とつげきチョッキ(D1.5倍/変化技不可)</option>
+                                    <option value="きあいのタスキ">きあいのタスキ(満タン耐え)</option>
+                                    <option value="いのちのたま">いのちのたま(威力1.3倍/反動)</option>
+                                    <option value="たべのこし">たべのこし(毎T回復)</option>
+                                    <option value="ゴツゴツメット">ゴツゴツメット(接触ダメ)</option>
+                                    <option value="こだわりハチマキ">こだわりハチマキ(A1.5倍/技固定)</option>
+                                    <option value="こだわりメガネ">こだわりメガネ(C1.5倍/技固定)</option>
+                                    <option value="こだわりスカーフ">こだわりスカーフ(S1.5倍/技固定)</option>
+                                    <option value="とつげきチョッキ">とつげきチョッキ(D1.5倍/変化技不可)</option>
+                                    <option value="ブーストエナジー">ブーストエナジー(能力上昇)</option>
+                                    <option value="クリアチャーム">クリアチャーム(能力ダウン無効)</option>
+                                    <option value="おんみつマント">おんみつマント(追加効果無効)</option>
+                                    <option value="パンチグローブ">パンチグローブ(パンチ強化/非接触)</option>
+                                    <option value="いかさまダイス">いかさまダイス(連続技安定)</option>
+                                    <option value="じゃくてんほけん">じゃくてんほけん(弱点でAC大幅上昇)</option>
+                                    <option value="だっしゅつボタン">だっしゅつボタン(被弾時交代)</option>
+                                    <option value="レッドカード">レッドカード(被弾時相手交代)</option>
+                                    <option value="ラムのみ">ラムのみ(状態異常回復)</option>
+                                    <option value="オボンのみ">オボンのみ(HP回復)</option>
+                                    <option value="カゴのみ">カゴのみ(眠り回復)</option>
+                                    <option value="リンドのみ">リンドのみ(草半減)</option>
+                                    <option value="オッカのみ">オッカのみ(炎半減)</option>
+                                    <option value="イトケのみ">イトケのみ(水半減)</option>
+                                    <option value="ソクノのみ">ソクノのみ(電半減)</option>
+                                    <option value="ヤチェのみ">ヤチェのみ(氷半減)</option>
+                                    <option value="ヨプのみ">ヨプのみ(闘半減)</option>
+                                    <option value="ビアーのみ">ビアーのみ(毒半減)</option>
+                                    <option value="シュカのみ">シュカのみ(地半減)</option>
+                                    <option value="バコウのみ">バコウのみ(飛半減)</option>
+                                    <option value="ウタンのみ">ウタンのみ(超半減)</option>
+                                    <option value="タンガのみ">タンガのみ(虫半減)</option>
+                                    <option value="ハバンのみ">ハバンのみ(龍半減)</option>
+                                    <option value="カシブのみ">カシブのみ(霊半減)</option>
+                                    <option value="ロゼルのみ">ロゼルのみ(妖半減)</option>
+                                    <option value="アッキのみ">アッキのみ(物理被弾でB↑)</option>
+                                    <option value="タラプのみ">タラプのみ(特殊被弾でD↑)</option>
+                                    <option value="しろいハーブ">しろいハーブ(ダウン解除)</option>
+                                    <option value="メンタルハーブ">メンタルハーブ(メロメロ等解除)</option>
+                                    <option value="パワフルハーブ">パワフルハーブ(溜めなし)</option>
+                                    <option value="ひかりのねんど">ひかりのねんど(壁延長)</option>
+                                    <option value="あつぞこブーツ">あつぞこブーツ(罠無効)</option>
                                 </select>
                             </div>
                             <div class="stat-row">
@@ -1214,10 +1271,14 @@
                         mon.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
                         mon.status = null;
                         mon.item = null;
-                        mon.substituteHP = 0;
+                        mon.substituteHP = 0; // Initialize substitute HP
+                        mon.chargingMove = null;
+                        mon.invulnerableState = null;
+                        mon.trapped = null; // { name: string, turns: number, sourceIdx: number }
                         mon.recharge = false;
                         mon.protectCount = 0;
                         mon.isProtected = false;
+                        this.checkBoosterEnergy(mon);
                     });
                 });
 
@@ -1440,13 +1501,19 @@
                     const targetIdx = 1 - actorIdx;
                     const actorP = this.players[actorIdx];
                     const targetP = this.players[targetIdx];
-                    const act = actorP.action;
+                    let act = actorP.action;
 
                     // Dead check
                     if (simState[actorIdx].currentHp <= 0) return;
 
                     const attacker = actorP.team[simActiveIdx[actorIdx]];
                     const defender = targetP.team[simActiveIdx[targetIdx]];
+
+                    // --- Charge Move Override ---
+                    if (attacker.chargingMove) {
+                        const mIdx = attacker.moves.findIndex(m => m.name === attacker.chargingMove);
+                        if (mIdx !== -1) act = { type: 'move', moveIdx: mIdx };
+                    }
 
                     // --- Recharge Check ---
                     if (attacker.recharge) {
@@ -1493,6 +1560,11 @@
                         const oldMon = actorP.team[simActiveIdx[actorIdx]];
                         const newMon = actorP.team[act.switchIdx];
 
+                        // Clear Substitute & Choice Lock on switch
+                        oldMon.substituteHP = 0;
+                        oldMon.choiceMove = null; // Reset choice lock
+                        this.checkBoosterEnergy(newMon);
+
                         this.turnQueue.push({
                             type: 'switch',
                             actorIdx: actorIdx,
@@ -1506,9 +1578,10 @@
                         // --- Entry Hazards ---
                         const hazards = actorP.hazards;
                         const isFlying = newMon.types.includes('flying');
+                        const isBoots = (newMon.item === 'あつぞこブーツ');
 
                         // 1. Stealth Rock (Affects everyone, damage depends on effectiveness)
-                        if (hazards.rocks) {
+                        if (hazards.rocks && !isBoots) {
                             let eff = 1.0;
                             newMon.types.forEach(t => {
                                 if (t !== 'none' && TYPE_CHART['rock'] && TYPE_CHART['rock'][t]) {
@@ -1524,7 +1597,7 @@
                         }
 
                         // 2. Spikes (Grounded only)
-                        if (hazards.spikes > 0 && !isFlying) {
+                        if (hazards.spikes > 0 && !isFlying && !isBoots) {
                             const mult = [0, 0.125, 0.166, 0.25];
                             const spikesDmg = Math.floor(newMon.stats.hp * mult[hazards.spikes]);
                             if (spikesDmg > 0) {
@@ -1535,7 +1608,7 @@
                         }
 
                         // 3. Toxic Spikes (Grounded only)
-                        if (hazards.tspikes > 0 && !isFlying && !newMon.types.includes('steel')) {
+                        if (hazards.tspikes > 0 && !isFlying && !newMon.types.includes('steel') && !isBoots) {
                             if (newMon.types.includes('poison')) {
                                 hazards.tspikes = 0; // Absorption
                                 this.turnQueue.push({ type: 'text', msg: 'どくびしが消えた！' });
@@ -1544,16 +1617,91 @@
                                     newMon.status = { condition: 'psn', turns: 0 };
                                     this.turnQueue.push({ type: 'text', msg: `${newMon.name} は 毒を浴びた！` });
                                 } else {
-                                    // Normally Toxic(badly poison), but simplified to psn for now or implement badly poison
-                                    newMon.status = { condition: 'psn', turns: 0 };
+                                    newMon.status = { condition: 'psn', turns: 0 }; // Simplified Toxic
                                     this.turnQueue.push({ type: 'text', msg: `${newMon.name} は 猛毒を浴びた！` });
                                 }
                             }
                         }
                     } else if (act.type === 'move') {
                         const move = attacker.moves[act.moveIdx];
+
+                        // Assault Vest Check
+                        if (attacker.item === 'とつげきチョッキ' && move.category === 'status') {
+                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は とつげきチョッキで 変化技が出せない！` });
+                            return;
+                        }
+
+                        // Choice Lock Check
+                        const choiceItems = ['こだわりハチマキ', 'こだわりメガネ', 'こだわりスカーフ'];
+                        if (choiceItems.includes(attacker.item) && attacker.choiceMove && attacker.choiceMove !== move.name) {
+                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は こだわりアイテムで 技が縛られている！` });
+                            return;
+                        }
+                        if (choiceItems.includes(attacker.item)) {
+                            attacker.choiceMove = move.name;
+                        }
+
                         const moveData = moveDB[move.name] || move;
                         const effect = moveData.effect || {};
+
+                        // --- Charge Execution Logic (Turn 1) ---
+                        const isCharged = (attacker.chargingMove === move.name);
+                        if (effect.meta && effect.meta.charge && !isCharged) {
+                            // Weather Exception
+                            let skipCharge = false;
+                            const heavySun = ['sun', 'severe_sun'].includes(this.weather);
+                            if ((move.name === 'ソーラービーム' || move.name === 'ソーラーブレード') && heavySun) {
+                                skipCharge = true;
+                            }
+
+                            if (!skipCharge) {
+                                attacker.chargingMove = move.name;
+
+                                let msg = `${attacker.name} は 力を溜めている！`;
+                                if (move.name === 'ソーラービーム') msg = `${attacker.name} は 光を吸収した！`;
+                                if (move.name === 'ソーラーブレード') msg = `${attacker.name} は 光を吸収した！`;
+                                if (move.name === 'ゴッドバード') msg = `${attacker.name} は 激しい光に 包まれた！`;
+                                if (move.name === 'かまいたち') msg = `${attacker.name} は かまいたちの風を つくりだした！`;
+                                if (move.name === 'ロケットずつき') msg = `${attacker.name} は 首を引っ込めた！`;
+                                if (move.name === 'フリーズボルト') msg = `${attacker.name} は 凍りつく光に 包まれた！`;
+                                if (move.name === 'コールドフレア') msg = `${attacker.name} は 凍てつく空気に 包まれた！`;
+                                if (move.name === 'メテオビーム') msg = `${attacker.name} に 宇宙の力が あふれだす！`;
+                                if (move.name === 'ジオコントロール') msg = `${attacker.name} は パワーを溜めている！`;
+
+                                if (move.name === 'あなをほる') msg = `${attacker.name} は 地面に潜った！`;
+                                if (move.name === 'そらをとぶ') msg = `${attacker.name} は 空高く飛び上がった！`;
+                                if (move.name === 'とびはねる') msg = `${attacker.name} は 高く飛び跳ねた！`;
+                                if (move.name === 'ダイビング') msg = `${attacker.name} は 水中に身を潜めた！`;
+                                if (move.name === 'シャドーダイブ') msg = `${attacker.name} は 姿を消した！`;
+                                if (move.name === 'ゴーストダイブ') msg = `${attacker.name} は 姿を隠した！`;
+
+                                this.turnQueue.push({ type: 'text', msg: msg });
+
+                                if (effect.meta.startInvulnerable) {
+                                    attacker.invulnerableState = effect.meta.startInvulnerable;
+                                }
+
+                                // Turn 1 Stat Effects
+                                if (effect.meta.chargeEffect) {
+                                    const parts = effect.meta.chargeEffect.split('_'); // e.g. 'def_+1'
+                                    const stat = parts[0];
+                                    const stage = parseInt(parts[1]);
+
+                                    if (!attacker.ranks) attacker.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
+                                    attacker.ranks[stat] = Math.max(-6, Math.min(6, attacker.ranks[stat] + stage));
+
+                                    const statNames = { atk: '攻撃', def: '防御', spa: '特攻', spd: '特防', spe: '素早さ' };
+                                    const stageText = (stage > 0) ? '上がった' : '下がった';
+                                    this.turnQueue.push({ type: 'text', msg: `${attacker.name} の ${statNames[stat]} が ${stageText}！` });
+                                }
+                                return;
+                            }
+                        }
+
+                        if (isCharged) {
+                            attacker.chargingMove = null;
+                            attacker.invulnerableState = null;
+                        }
 
                         // --- Recharge Check ---
                         if (attacker.recharge) {
@@ -1634,14 +1782,35 @@
                         const evaMult = this.getAccRankMultiplier(defenderEvaRank);
                         let accBase = CUSTOM_ACCURACY[move.name] !== undefined ? CUSTOM_ACCURACY[move.name] : (moveData.accuracy !== undefined ? moveData.accuracy : 100);
 
+                        // Invulnerability Check
+                        let invulnerableMiss = false;
+                        if (defender.invulnerableState) {
+                            invulnerableMiss = true;
+                            // Exceptions (Simplified)
+                            const s = defender.invulnerableState;
+                            const m = move.name;
+                            if (s === 'dig' && (m === 'じしん' || m === 'マグニチュード')) invulnerableMiss = false;
+                            if (s === 'fly' && (m === 'かみなり' || m === 'ぼうふう' || m === 'うちおとす')) invulnerableMiss = false;
+                            if (s === 'bounce' && (m === 'かみなり' || m === 'ぼうふう' || m === 'うちおとす')) invulnerableMiss = false;
+                            if (s === 'dive' && (m === 'なみのり' || m === 'うずしお')) invulnerableMiss = false;
+                            if (effect.flags && effect.flags.alwaysHit && s !== 'shadow' && s !== 'phantom') invulnerableMiss = false; // Always hit moves (mostly)
+                        }
+
                         if (effect.meta && effect.meta.ohko) {
                             hit = true;
+                        } else if (invulnerableMiss) {
+                            hit = false;
                         } else if (!(effect.flags && effect.flags.alwaysHit)) {
                             if (Math.random() * 100 > (accBase * accMult / evaMult)) hit = false;
                         }
 
                         if (!hit) {
-                            this.turnQueue.push({ type: 'text', msg: '攻撃は外れた！' });
+                            // Message differentiation
+                            if (invulnerableMiss) {
+                                this.turnQueue.push({ type: 'text', msg: `${defender.name} は 攻撃を避けた！` });
+                            } else {
+                                this.turnQueue.push({ type: 'text', msg: '攻撃は外れた！' });
+                            }
                         } else {
                             // Hit Success
                             if (effect.meta && effect.meta.weather) {
@@ -1649,8 +1818,15 @@
                             }
 
                             let hits = 1;
-                            if (effect.multihit) {
-                                hits = Math.floor(Math.random() * (effect.multihit[1] - effect.multihit[0] + 1)) + effect.multihit[0];
+                            if (move.name === 'ネズミざん') {
+                                hits = 10; // Try up to 10 times
+                            } else if (effect.multihit) {
+                                let min = effect.multihit[0];
+                                let max = effect.multihit[1];
+                                if (attacker.item === 'いかさまダイス' && max >= 4) {
+                                    if (min < 4) min = 4;
+                                }
+                                hits = Math.floor(Math.random() * (max - min + 1)) + min;
                             }
 
                             let totalDmg = 0;
@@ -1702,6 +1878,10 @@
                                     if (attacker.lv < defender.lv) {
                                         dmg = 0; effMsg = "レベルが 足りない！";
                                     } else {
+                                        // User requested: "Always hit checked (done outside), but 30% KO, 70% 0 damage"
+                                        // We stick to the standard formula base of 30 + level diff, or just strict 30?
+                                        // The user said "30% chance". Let's do standard formula but ensure it works.
+                                        // If the user REALLY meant fixed 30%, (attacker.lv - defender.lv) + 30 is roughly 30 for equal levels.
                                         const ohkoAcc = (attacker.lv - defender.lv) + 30;
                                         if (Math.random() * 100 < ohkoAcc) {
                                             dmg = simState[targetIdx].currentHp; effMsg = "一撃必殺！";
@@ -1859,6 +2039,13 @@
                                 });
                             }
 
+                            // Trapping (Bind/Whirlpool)
+                            if (simState[targetIdx].currentHp > 0 && effect.meta && effect.meta.trap) {
+                                const turns = Math.floor(Math.random() * 2) + 4; // 4 to 5 turns
+                                defender.trapped = { name: effect.meta.trapName, turns: turns, sourceIdx: actorIdx };
+                                this.turnQueue.push({ type: 'text', msg: `${defender.name} は ${effect.meta.trapName} に 捕らわれた！` });
+                            }
+
                             // 4. Recharge (Hyper Beam)
                             if (effect.meta && effect.meta.recharge) {
                                 attacker.recharge = true;
@@ -1877,13 +2064,29 @@
                                             let immune = false;
                                             // Immunity logic...
                                             if (effect.meta.status === 'brn' && defender.types.includes('fire')) immune = true;
-                                            if (effect.meta.status === 'psn' && (defender.types.includes('poison') || defender.types.includes('steel'))) immune = true;
+                                            if ((effect.meta.status === 'psn' || effect.meta.status === 'tox') && (defender.types.includes('poison') || defender.types.includes('steel'))) immune = true;
                                             if (effect.meta.status === 'par' && defender.types.includes('electric')) immune = true;
                                             if (effect.meta.status === 'frz' && defender.types.includes('ice')) immune = true;
 
                                             if (!immune) {
-                                                defender.status = { condition: effect.meta.status, turns: turns };
-                                                this.turnQueue.push({ type: 'text', msg: `${defender.name} は ${map[effect.meta.status]} になった！` });
+                                                const condition = effect.meta.status || 'psn';
+                                                defender.status = { condition: condition, turns: 0 };
+                                                const map = { psn: '毒', tox: '猛毒', par: '麻痺', brn: '火傷', frz: '氷', slp: '眠り' };
+                                                this.turnQueue.push({ type: 'text', msg: `${defender.name} は ${map[condition]} になった！` });
+
+                                                // Status Berry Check
+                                                const sItem = defender.item;
+                                                const sCond = condition;
+                                                if (sItem === 'ラムのみ' ||
+                                                    (sItem === 'カゴのみ' && sCond === 'slp') ||
+                                                    (sItem === 'クラボのみ' && sCond === 'par') ||
+                                                    (sItem === 'モモンのみ' && (sCond === 'psn' || sCond === 'tox')) ||
+                                                    (sItem === 'チーゴのみ' && sCond === 'brn') ||
+                                                    (sItem === 'ナナシのみ' && sCond === 'frz')) {
+                                                    defender.status = null;
+                                                    defender.item = ''; // Consume immediately
+                                                    this.turnQueue.push({ type: 'text', msg: `${defender.name} は ${sItem}で 回復した！` });
+                                                }
                                             }
                                         }
                                     }
@@ -2039,6 +2242,7 @@
                     }
 
                     // Status Damage
+                    // Status Damage
                     [p1, p2].forEach((p, idx) => {
                         const mon = p.team[p.activeIdx];
                         if (mon.currentHp > 0 && mon.status) {
@@ -2048,6 +2252,34 @@
                             } else if (mon.status.condition === 'psn') {
                                 const dmg = Math.floor(mon.stats.hp / 8) || 1;
                                 endQueue.push({ type: 'damage', targetIdx: idx, damage: dmg, msg: 'どくのダメージをうけている！' });
+                            } else if (mon.status.condition === 'tox') {
+                                mon.status.turns++;
+                                const dmg = Math.floor(mon.stats.hp * mon.status.turns / 16) || 1;
+                                endQueue.push({ type: 'damage', targetIdx: idx, damage: dmg, msg: '毒が回っている！' });
+                            }
+                        }
+
+                        // Trapping Damage
+                        if (mon.currentHp > 0 && mon.trapped) {
+                            const tName = mon.trapped.name;
+                            const dmg = Math.floor(mon.stats.hp / 8) || 1;
+                            endQueue.push({ type: 'damage', targetIdx: idx, damage: dmg, msg: `${mon.name} は ${tName} による ダメージを受けている！` });
+                            mon.trapped.turns--;
+                            if (mon.trapped.turns <= 0) {
+                                endQueue.push({ type: 'text', msg: `${mon.name} の ${tName} が 解けた！` });
+                                mon.trapped = null;
+                            }
+                        }
+                    });
+
+                    // Item Effects (Leftovers)
+                    [p1, p2].forEach((p, idx) => {
+                        const mon = p.team[p.activeIdx];
+                        if (mon.currentHp > 0 && mon.currentHp < mon.stats.hp) {
+                            if (mon.item === 'たべのこし') {
+                                const rec = Math.floor(mon.stats.hp / 16) || 1;
+                                mon.currentHp = Math.min(mon.stats.hp, mon.currentHp + rec);
+                                endQueue.push({ type: 'damage', targetIdx: idx, damage: -rec, msg: `${mon.name} は たべのこしで 回復した！` });
                             }
                         }
                     });
@@ -2130,18 +2362,24 @@
 
                 if (power <= 0) return { damage: 0, superEffective: 1 };
 
-                const atkRank = attacker.ranks ? attacker.ranks.atk : 0;
-                const defRank = defender.ranks ? defender.ranks.def : 0;
-                const spaRank = attacker.ranks ? attacker.ranks.spa : 0;
-                const spdRank = defender.ranks ? defender.ranks.spd : 0;
+                let a = (move.category === 'physical') ? attacker.stats.atk : attacker.stats.spa;
+                let d = (move.category === 'physical') ? defender.stats.def : defender.stats.spd;
 
-                let a = (move.category === 'physical')
-                    ? Math.floor(attacker.stats.atk * this.getRankMultiplier(atkRank))
-                    : Math.floor(attacker.stats.spa * this.getRankMultiplier(spaRank));
+                // Rank Multipliers
+                const atkRank = (move.category === 'physical') ? attacker.ranks.atk : attacker.ranks.spa;
+                const defRank = (move.category === 'physical') ? defender.ranks.def : defender.ranks.spd;
+                a = Math.floor(a * this.getRankMultiplier(atkRank));
+                d = Math.floor(d * this.getRankMultiplier(defRank));
 
-                let d = (move.category === 'physical')
-                    ? Math.floor(defender.stats.def * this.getRankMultiplier(defRank))
-                    : Math.floor(defender.stats.spd * this.getRankMultiplier(spdRank));
+                // Booster Energy (Stat Boost)
+                if (attacker.item === 'ブーストエナジー' && attacker.boosterStat) {
+                    const cat = (move.category === 'physical') ? 'atk' : 'spa';
+                    if (attacker.boosterStat === cat) a = Math.floor(a * 1.3);
+                }
+                if (defender.item === 'ブーストエナジー' && defender.boosterStat) {
+                    const cat = (move.category === 'physical') ? 'def' : 'spd';
+                    if (defender.boosterStat === cat) d = Math.floor(d * 1.3);
+                }
 
                 // Burn
                 if (attacker.status && attacker.status.condition === 'brn' && move.category === 'physical') {
@@ -2286,9 +2524,32 @@
                 else return 2 / (2 + Math.abs(stage));
             },
 
-            getAccRankMultiplier: function (stage) {
-                if (stage >= 0) return (3 + stage) / 3;
-                else return 3 / (3 + Math.abs(stage));
+            getAccRankMultiplier: function (rank) {
+                const map = {
+                    '-6': 0.33, '-5': 0.37, '-4': 0.43, '-3': 0.50, '-2': 0.60, '-1': 0.75,
+                    '0': 1.0,
+                    '1': 1.33, '2': 1.66, '3': 2.0, '4': 2.33, '5': 2.66, '6': 3.0
+                };
+                return map[rank] || 1.0;
+            },
+
+            checkBoosterEnergy: function (mon) {
+                if (mon.item !== 'ブーストエナジー' && mon.item !== 'booster_energy') {
+                    mon.boosterStat = null;
+                    return;
+                }
+                if (mon.boosterStat) return; // Already active
+
+                const s = mon.stats;
+                let bestStat = 'atk';
+                let bestVal = s.atk;
+
+                if (s.def > bestVal) { bestStat = 'def'; bestVal = s.def; }
+                if (s.spa > bestVal) { bestStat = 'spa'; bestVal = s.spa; }
+                if (s.spd > bestVal) { bestStat = 'spd'; bestVal = s.spd; }
+                if (s.spe > bestVal) { bestStat = 'spe'; bestVal = s.spe; }
+
+                mon.boosterStat = bestStat;
             },
 
             getActualSpeed: function (p) {
@@ -2376,8 +2637,19 @@
             },
 
             showSwitchScreen: function (isForced) {
-                this.showScreen('screen-switch');
                 const p = this.players[this.currentPlayerIndex];
+                const activeMon = p.team[p.activeIdx];
+
+                // Trapping Check (Voluntary Switch Only)
+                if (!isForced && activeMon.trapped) {
+                    // Ghost types can escape
+                    if (!activeMon.types.includes('ghost')) {
+                        alert(`${activeMon.name} は ${activeMon.trapped.name} に 捕まっていて 交代できない！`);
+                        return;
+                    }
+                }
+
+                this.showScreen('screen-switch');
                 const switchMsgEl = document.getElementById('switch-msg');
                 if (switchMsgEl) switchMsgEl.innerText = isForced ? "強制交代: 戦闘不能です。次を選んでください" : "交代するポケモンを選択";
 
