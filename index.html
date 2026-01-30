@@ -687,6 +687,35 @@
                     ];
                     if (recharges.includes(name)) m.effect.meta.recharge = true;
 
+                    // --- Weather Moves ---
+                    if (name === 'あまごい') m.effect.meta.weather = 'rain';
+                    if (name === 'にほんばれ') m.effect.meta.weather = 'sun';
+                    if (name === 'すなあらし') m.effect.meta.weather = 'sandstorm';
+                    if (name === 'あられ' || name === 'ゆきげしき') m.effect.meta.weather = 'snow';
+
+                    // --- Recovery Moves ---
+                    const heal50 = ['じこさいせい', 'たまごうみ', 'ミルクのみ', 'なまける', 'はねやすめ', 'かいふくしれい'];
+                    if (heal50.includes(name)) m.effect.meta.heal = 0.5;
+
+                    const healWeather = ['つきのひかり', 'あさのひざし', 'こうごうせい'];
+                    if (healWeather.includes(name)) m.effect.meta.heal = 'weather';
+
+                    // --- Trapping Moves (Bind) ---
+                    const traps = ['しめつける', 'まきつく', 'ほのおのうず', 'うずしお', 'すなじごく', 'まとわりつく', 'マグマストーム', 'サンダープリズン'];
+                    if (traps.includes(name)) {
+                        m.effect.meta.trap = true;
+                        m.effect.meta.trapName = name;
+                    }
+
+                    // --- Field Moves ---
+                    if (['エレキフィールド', 'グラスフィールド', 'ミストフィールド', 'サイコフィールド'].includes(name)) {
+                        const map = { 'エレキフィールド': 'electric', 'グラスフィールド': 'grassy', 'ミストフィールド': 'misty', 'サイコフィールド': 'psychic' };
+                        m.effect.meta.field = map[name];
+                    }
+                    if (name === 'トリックルーム') m.effect.meta.trickroom = true;
+                    if (name === 'どろぼう' || name === 'ほしがる') m.effect.meta.steal = true;
+                    if (name === 'トリック' || name === 'すりかえ') m.effect.meta.swapItem = true;
+
                     count++;
                 }
                 const st = document.getElementById('csv-status-move');
@@ -815,6 +844,20 @@
                 if (str.match(/higher the user's HP/i)) { res.variablePower = { type: 'hp_high' }; }
                 if (str.match(/slower the user/i)) { res.variablePower = { type: 'speed_slow' }; }
                 if (str.match(/faster the user/i)) { res.variablePower = { type: 'speed_fast' }; }
+
+                // 15. Manual Flags (Field/TR)
+                if (str.includes('エレキフィールド') || str.match(/Electric Terrain/i)) res.meta.field = 'electric';
+                if (str.includes('グラスフィールド') || str.match(/Grassy Terrain/i)) res.meta.field = 'grassy';
+                if (str.includes('ミストフィールド') || str.match(/Misty Terrain/i)) res.meta.field = 'misty';
+                if (str.includes('サイコフィールド') || str.match(/Psychic Terrain/i)) res.meta.field = 'psychic';
+                if (str.includes('トリックルーム') || str.match(/Trick Room/i)) res.meta.trickroom = true;
+
+                // 15. Manual Flags (Field/TR) - handled in parseMoveCsv mostly but regex here if needed
+                if (str.includes('エレキフィールド') || str.match(/Electric Terrain/i)) res.meta.field = 'electric';
+                if (str.includes('グラスフィールド') || str.match(/Grassy Terrain/i)) res.meta.field = 'grassy';
+                if (str.includes('ミストフィールド') || str.match(/Misty Terrain/i)) res.meta.field = 'misty';
+                if (str.includes('サイコフィールド') || str.match(/Psychic Terrain/i)) res.meta.field = 'psychic';
+                if (str.includes('トリックルーム') || str.match(/Trick Room/i)) res.meta.trickroom = true;
 
                 return res;
             },
@@ -1270,7 +1313,8 @@
                         mon.currentHp = mon.stats.hp;
                         mon.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
                         mon.status = null;
-                        mon.item = null;
+                        // mon.item is already set by savePlayerData, do not overwrite!
+                        mon.consumeItem = false;
                         mon.substituteHP = 0; // Initialize substitute HP
                         mon.chargingMove = null;
                         mon.invulnerableState = null;
@@ -1398,6 +1442,14 @@
                     const wMap = { none: 'なし', sun: '晴れ', rain: '雨', sandstorm: '砂あらし', snow: '雪' };
                     weatherEl.innerText = `天候: ${wMap[this.weather]}`;
                     weatherEl.style.backgroundColor = this.weather === 'none' ? '#fff' : '#fff9c4';
+
+                    // Field/TR Status append
+                    const trStatus = this.trickRoomTurns > 0 ? ' [トリル]' : '';
+                    const fieldMap = { none: '', electric: ' [エレキ]', grassy: ' [グラス]', misty: ' [ミスト]', psychic: ' [サイコ]' };
+                    const fieldStatus = fieldMap[this.terrain] || '';
+                    if (trStatus || fieldStatus) {
+                        weatherEl.innerText += fieldStatus + trStatus;
+                    }
                 }
 
                 const container = document.getElementById('move-buttons');
@@ -1476,6 +1528,12 @@
                     const mon = p.team[p.activeIdx];
                     const move = mon.moves[act.moveIdx];
                     const moveData = moveDB[move.name] || move;
+                    // Grassy Glide Priority
+                    if (move.name === 'グラススライダー' && this.terrain === 'grassy') {
+                        // Check grounded
+                        if (!mon.types.includes('flying')) return 1;
+                    }
+                    if (moveData.name === 'トリックルーム') return -7;
                     return moveData.priority || 0;
                 };
 
@@ -1486,8 +1544,12 @@
                 if (p1Pri > p2Pri) order = [0, 1];
                 else if (p2Pri > p1Pri) order = [1, 0];
                 else {
-                    // 同優先度の場合は素早さ比較 (乱数要素は簡略化のため無し)
-                    order = (p1Speed >= p2Speed) ? [0, 1] : [1, 0];
+                    // Trick Room Speed Reversal
+                    if (this.trickRoomTurns > 0) {
+                        order = (p1Speed >= p2Speed) ? [1, 0] : [0, 1];
+                    } else {
+                        order = (p1Speed >= p2Speed) ? [0, 1] : [1, 0];
+                    }
                 }
 
                 // Simulation State (so we know if someone fainted mid-turn)
@@ -1621,9 +1683,26 @@
                                     this.turnQueue.push({ type: 'text', msg: `${newMon.name} は 猛毒を浴びた！` });
                                 }
                             }
+                            this.turnQueue.push({ type: 'text', msg: `${newMon.name} は 猛毒を浴びた！` });
                         }
                     } else if (act.type === 'move') {
                         const move = attacker.moves[act.moveIdx];
+
+                        // Psychic Terrain Block Check (Priority > 0 targeting enemy)
+                        const moveData = moveDB[move.name] || move;
+                        const pri = getPriority(actorP); // includes Grassy Glide check
+                        if (this.terrain === 'psychic' && pri > 0 && simState[targetIdx].currentHp > 0) {
+                            // Check if target is grounded (not flying)
+                            if (!defender.types.includes('flying')) {
+                                this.turnQueue.push({ type: 'text', msg: `サイコフィールドで ${attacker.name} は 攻撃できない！` });
+                                return;
+                            }
+                        }
+
+                        // Sleep Check (Electric/Misty Terrain)
+                        if (act.type === 'move') {
+                            // Already inside check, merging logic...
+                        }
 
                         // Assault Vest Check
                         if (attacker.item === 'とつげきチョッキ' && move.category === 'status') {
@@ -1641,7 +1720,7 @@
                             attacker.choiceMove = move.name;
                         }
 
-                        const moveData = moveDB[move.name] || move;
+                        // const moveData = moveDB[move.name] || move; // Already declared above
                         const effect = moveData.effect || {};
 
                         // --- Charge Execution Logic (Turn 1) ---
@@ -1914,7 +1993,8 @@
                                 const isFullHp = (simState[targetIdx].currentHp === defender.stats.hp);
                                 let potentialDmg = dmg;
                                 if (potentialDmg >= simState[targetIdx].currentHp) {
-                                    if (defender.item === 'きあいのタスキ' && isFullHp) {
+                                    // Make sure we are strictly at max HP before generating the sash effect
+                                    if (defender.item === 'きあいのタスキ' && isFullHp && simState[targetIdx].currentHp > 1) {
                                         potentialDmg = simState[targetIdx].currentHp - 1;
                                         defender.consumeItem = true;
                                         this.turnQueue.push({ type: 'text', msg: `${defender.name} は きあいのタスキで 持ちこたえた！` });
@@ -2019,15 +2099,27 @@
                                 });
                             }
 
-                            // 2. Direct Heal (Recover)
+                            // 2. Variable Heal
                             if (effect.meta && effect.meta.heal) {
-                                const heal = Math.floor(attacker.stats.hp * effect.meta.heal);
-                                simState[actorIdx].currentHp += heal;
-                                if (simState[actorIdx].currentHp > attacker.stats.hp) simState[actorIdx].currentHp = attacker.stats.hp;
-                                this.turnQueue.push({
-                                    type: 'damage', targetIdx: actorIdx, damage: -heal,
-                                    msg: `${attacker.name} は 体力を回復した！`
-                                });
+                                let rate = 0;
+                                if (effect.meta.heal === 'weather') {
+                                    if (this.weather === 'sun' || this.weather === 'severe_sun') rate = 2 / 3; // ~0.66
+                                    else if (this.weather === 'rain' || this.weather === 'sandstorm' || this.weather === 'snow' || this.weather === 'hail') rate = 0.25;
+                                    else rate = 0.5;
+                                } else {
+                                    rate = parseFloat(effect.meta.heal) || 0.5;
+                                }
+                                const heal = Math.floor(attacker.stats.hp * rate);
+                                if (heal > 0) {
+                                    simState[actorIdx].currentHp += heal;
+                                    if (simState[actorIdx].currentHp > attacker.stats.hp) simState[actorIdx].currentHp = attacker.stats.hp;
+                                    this.turnQueue.push({
+                                        type: 'damage', targetIdx: actorIdx, damage: -heal,
+                                        msg: `${attacker.name} は 体力を回復した！`
+                                    });
+                                } else {
+                                    this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 体力満タンだ！` });
+                                }
                             }
 
                             // 3. Self Faint (Explosion)
@@ -2051,6 +2143,39 @@
                                 attacker.recharge = true;
                             }
 
+                            // 5. Field / Trick Room
+                            if (effect.meta && effect.meta.field) {
+                                this.terrain = effect.meta.field;
+                                this.terrainTurns = 5;
+                                const fMap = { electric: 'エレキフィールド', grassy: 'グラスフィールド', misty: 'ミストフィールド', psychic: 'サイコフィールド' };
+                                this.turnQueue.push({ type: 'text', msg: `足元が ${fMap[this.terrain]} になった！` });
+                            }
+                            if (effect.meta && effect.meta.trickroom) {
+                                if (this.trickRoomTurns > 0) {
+                                    this.trickRoomTurns = 0;
+                                    this.turnQueue.push({ type: 'text', msg: '歪んだ寸法が 元に戻った！' });
+                                } else {
+                                    this.trickRoomTurns = 5;
+                                    this.turnQueue.push({ type: 'text', msg: '時空が 歪んでしまった！' });
+                                }
+                            }
+
+                            // 6. Thief / Trick
+                            if (effect.meta && effect.meta.steal && simState[targetIdx].currentHp > 0) {
+                                if (!attacker.item && defender.item) {
+                                    attacker.item = defender.item;
+                                    defender.item = '';
+                                    defender.consumeItem = true; // functionally gone from defender
+                                    this.turnQueue.push({ type: 'text', msg: `${attacker.name} は ${defender.name} から ${attacker.item} を 奪った！` });
+                                }
+                            }
+                            if (effect.meta && effect.meta.swapItem && simState[targetIdx].currentHp > 0) {
+                                const tmp = attacker.item;
+                                attacker.item = defender.item;
+                                defender.item = tmp;
+                                this.turnQueue.push({ type: 'text', msg: `${attacker.name} と ${defender.name} の 持ち物を 交換した！` });
+                            }
+
                             // Original Status/Recoil/Stat logic
                             if (simState[targetIdx].currentHp > 0 || (effect.meta && effect.meta.statSelf)) {
                                 if (effect.meta) {
@@ -2063,10 +2188,16 @@
                                             if (effect.meta.status === 'slp') turns = Math.floor(Math.random() * 3) + 1;
                                             let immune = false;
                                             // Immunity logic...
+                                            // Immunity logic...
                                             if (effect.meta.status === 'brn' && defender.types.includes('fire')) immune = true;
                                             if ((effect.meta.status === 'psn' || effect.meta.status === 'tox') && (defender.types.includes('poison') || defender.types.includes('steel'))) immune = true;
                                             if (effect.meta.status === 'par' && defender.types.includes('electric')) immune = true;
                                             if (effect.meta.status === 'frz' && defender.types.includes('ice')) immune = true;
+
+                                            // Misty Terrain (Status Prevention for grounded)
+                                            if (this.terrain === 'misty' && !defender.types.includes('flying')) immune = true;
+                                            // Electric Terrain (Sleep Prevention for grounded)
+                                            if (this.terrain === 'electric' && effect.meta.status === 'slp' && !defender.types.includes('flying')) immune = true;
 
                                             if (!immune) {
                                                 const condition = effect.meta.status || 'psn';
@@ -2146,7 +2277,7 @@
                             }
                         }
                     }
-                });
+                }); // End of turn processing loop
 
                 this.processNextAction();
             },
@@ -2220,6 +2351,30 @@
                 let endQueue = [];
 
                 if (this.endOfTurnStage === 0) {
+                    // Field / Trick Room Management
+                    if (this.trickRoomTurns > 0) {
+                        this.trickRoomTurns--;
+                        if (this.trickRoomTurns <= 0) endQueue.push({ type: 'text', msg: '歪んだ寸法が 元に戻った！' });
+                    }
+                    if (this.terrain !== 'none') {
+                        this.terrainTurns--;
+                        if (this.terrainTurns <= 0) {
+                            endQueue.push({ type: 'text', msg: 'フィールドが 元に戻った！' });
+                            this.terrain = 'none';
+                        } else {
+                            // Grassy Terrain Heal
+                            if (this.terrain === 'grassy') {
+                                [p1, p2].forEach((p, idx) => {
+                                    const mon = p.team[p.activeIdx];
+                                    if (mon.currentHp > 0 && mon.currentHp < mon.stats.hp && !mon.types.includes('flying')) {
+                                        const rec = Math.floor(mon.stats.hp / 16) || 1;
+                                        mon.currentHp = Math.min(mon.stats.hp, mon.currentHp + rec);
+                                        endQueue.push({ type: 'damage', targetIdx: idx, damage: -rec, msg: `${mon.name} は グラスフィールドで 回復した！` });
+                                    }
+                                });
+                            }
+                        }
+                    }
                     this.endOfTurnStage = 1;
                     // Weather
                     if (this.weather !== 'none') {
@@ -2428,6 +2583,18 @@
 
                 // STAB
                 if (attacker.types.includes(move.type)) multi *= 1.5;
+
+                // Terrain Modifiers
+                const isGrounded = !defender.types.includes('flying');
+                const isUserGrounded = !attacker.types.includes('flying');
+
+                if (this.terrain === 'electric' && move.type === 'electric' && isUserGrounded) multi *= 1.3;
+                if (this.terrain === 'grassy' && move.type === 'grass' && isUserGrounded) multi *= 1.3;
+                if (this.terrain === 'psychic' && move.type === 'psychic' && isUserGrounded) multi *= 1.3;
+                if (this.terrain === 'misty' && move.type === 'dragon' && isGrounded) multi *= 0.5;
+
+                // Grassy Terrain Earthquake nerf
+                if (this.terrain === 'grassy' && ['じしん', 'じならし', 'マグニチュード'].includes(move.name)) multi *= 0.5;
 
                 // Crit
                 const critRate = (effect && effect.meta && effect.meta.critRate) ? 2 : 0;
