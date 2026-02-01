@@ -1042,6 +1042,9 @@
                 let html = '<div class="wrapper-setup">';
                 html += `<div class="player-setup-col">`;
 
+                // Omakase Button
+                html += `<button class="btn btn-blue" style="margin-bottom:10px; background:#673AB7;" onclick="app.applyRandomTeamToUi(${pIdx})">★ おまかせ編成 (IV合計504) ★</button>`;
+
                 html += `<div class="pokemon-tabs-nav">`;
                 for (let i = 0; i < TEAM_SIZE; i++) {
                     html += `<button class="pokemon-tab ${i === 0 ? 'active' : ''}" onclick="app.switchSetupTab(${i})">Poke ${i + 1}</button>`;
@@ -1181,6 +1184,57 @@
                 this.savePlayerData(this.setupPlayerIndex);
 
                 if (this.setupPlayerIndex === 0) {
+                    if (this.isSinglePlayer) {
+                        // CPU Auto Generation (Single Player)
+                        const cpuData = this.generateRandomTeamData(1);
+                        const team = [];
+                        cpuData.forEach((d, i) => {
+                            const poke = pokemonDB[d.name];
+                            // Base stats fallback if name not found?
+                            const base = poke ? { h: poke.hp, a: poke.atk, b: poke.def, c: poke.spa, d: poke.spd, s: poke.spe } : { h: 100, a: 100, b: 100, c: 100, d: 100, s: 100 };
+
+                            const stats = this.calcStatsFromData(base, d.ivs, d.evs, 50, d.nature);
+
+                            // Construct Move Objects
+                            const moves = d.moves.map(mName => {
+                                const m = moveDB[mName];
+                                return m ? { name: mName, type: m.type, category: m.category, power: m.power } : { name: '-', type: 'normal', category: 'physical', power: 0 };
+                            });
+
+                            team.push({
+                                name: d.name,
+                                lv: 50,
+                                stats: stats,
+                                currentHp: stats.hp,
+                                ranks: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 },
+                                moves: moves,
+                                types: poke ? [poke.t1, poke.t2] : ['normal', 'none'],
+                                status: null,
+                                item: d.item,
+                                consumeItem: false,
+                                substituteHP: 0,
+                                chargingMove: null,
+                                invulnerableState: null,
+                                trapped: null,
+                                recharge: false,
+                                protectCount: 0,
+                                isProtected: false
+                            });
+                            this.checkBoosterEnergy(team[team.length - 1]);
+                        });
+
+                        this.players[1] = {
+                            name: "CPU",
+                            team: team,
+                            activeIdx: 0,
+                            action: null
+                        };
+                        console.log("CPU Team Generated:", this.players[1]);
+
+                        this.initializeBattle();
+                        return;
+                    }
+
                     this.showScreen('screen-curtain');
                     const curtainMsgEl = document.getElementById('curtain-msg');
                     if (curtainMsgEl) curtainMsgEl.innerText = "Player 1 セットアップ完了";
@@ -1203,6 +1257,64 @@
                 console.log("Game Mode:", mode);
             },
 
+            applyRandomTeamToUi: function (pIdx) {
+                const data = this.generateRandomTeamData(pIdx);
+                data.forEach((member, mIdx) => {
+                    const prefix = `p${pIdx}_m${mIdx}`;
+
+                    // Set Name
+                    const nameInput = document.getElementById(`${prefix}_name`);
+                    if (nameInput) {
+                        nameInput.value = member.name;
+                        this.autoFillStats(member.name, prefix);
+                    }
+
+                    // Set Nature
+                    const natInput = document.getElementById(`${prefix}_nature`);
+                    if (natInput) natInput.value = member.nature;
+
+                    // Set Item
+                    const itemInput = document.getElementById(`${prefix}_item`);
+                    if (itemInput) itemInput.value = member.item;
+
+                    // Set EVs
+                    if (member.evs) {
+                        const setEv = (k, v) => {
+                            const el = document.getElementById(`${prefix}_ev_${k}`);
+                            if (el) el.value = v;
+                        };
+                        setEv('h', member.evs.h);
+                        setEv('a', member.evs.a);
+                        setEv('b', member.evs.b);
+                        setEv('c', member.evs.c);
+                        setEv('d', member.evs.d);
+                        setEv('s', member.evs.s);
+                    }
+
+                    // Set IVs
+                    if (member.ivs) {
+                        const setIv = (k, v) => {
+                            const el = document.getElementById(`${prefix}_iv_${k}`);
+                            if (el) el.value = v;
+                        };
+                        setIv('h', member.ivs.h);
+                        setIv('a', member.ivs.a);
+                        setIv('b', member.ivs.b);
+                        setIv('c', member.ivs.c);
+                        setIv('d', member.ivs.d);
+                        setIv('s', member.ivs.s);
+                    }
+
+                    // Set Moves
+                    member.moves.forEach((mv, j) => {
+                        const mvInput = document.getElementById(`${prefix}_move${j}_name`);
+                        if (mvInput) {
+                            mvInput.value = mv;
+                            this.autoFillMove(mvInput, `${prefix}_move${j}`);
+                        }
+                    });
+                });
+            },
             savePlayerData: function (pIdx) {
                 let team = [];
                 for (let m = 0; m < TEAM_SIZE; m++) {
@@ -1388,12 +1500,7 @@
                             const fakeDefender = JSON.parse(JSON.stringify(opponent));
                             // Basic damage calc simulation
                             const dmgRes = this.calcDamage(fakeAttacker, fakeDefender, m);
-                            score = dmgRes.damage;
-                        } else {
-                            // Status moves gets a random score 0-50 to occasionally be picked
-                            score = Math.floor(Math.random() * 50);
                         }
-                        validMoves.push({ idx, score });
                     });
 
                     if (validMoves.length > 0) {
@@ -1432,6 +1539,102 @@
                 }
             },
 
+            // --- Auto Select Logic (Omakase) ---
+            getRandomPokemonTeam: function () {
+                const candidates = Object.keys(pokemonDB);
+                if (candidates.length === 0) return [];
+
+                // Shuffle and pick 3
+                const shuffled = candidates.sort(() => 0.5 - Math.random());
+                return shuffled.slice(0, TEAM_SIZE);
+            },
+
+            getRandomMoveSet: function (pokeName) {
+                const movesKeys = Object.keys(moveDB);
+                if (movesKeys.length === 0) return [];
+
+                // Try to include at least one STAB move
+                const poke = pokemonDB[pokeName];
+                let stabMoves = [];
+                let otherMoves = [];
+
+                movesKeys.forEach(mKey => {
+                    const m = moveDB[mKey];
+                    if (m.name === '-') return;
+                    if (poke && (m.type === poke.t1 || m.type === poke.t2)) {
+                        stabMoves.push(m.name);
+                    } else {
+                        otherMoves.push(m.name);
+                    }
+                });
+
+                const selected = [];
+                // 1. Pick 1 STAB if available
+                if (stabMoves.length > 0) {
+                    const r = Math.floor(Math.random() * stabMoves.length);
+                    selected.push(stabMoves[r]);
+                    stabMoves.splice(r, 1); // remove to avoid dupe
+                }
+
+                // 2. Fill rest with random mix
+                const pool = [...stabMoves, ...otherMoves];
+                while (selected.length < 4 && pool.length > 0) {
+                    const r = Math.floor(Math.random() * pool.length);
+                    selected.push(pool[r]);
+                    pool.splice(r, 1);
+                }
+
+                // Fill with '-' if not enough
+                while (selected.length < 4) selected.push('-');
+
+                return selected;
+            },
+
+            getRandomItem: function () {
+                const items = [
+                    "きあいのタスキ", "いのちのたま", "たべのこし", "ゴツゴツメット",
+                    "こだわりハチマキ", "こだわりメガネ", "こだわりスカーフ", "とつげきチョッキ",
+                    "ブーストエナジー", "クリアチャーム", "おんみつマント", "パンチグローブ",
+                    "いかさまダイス", "じゃくてんほけん", "だっしゅつボタン", "レッドカード",
+                    "ラムのみ", "オボンのみ", "カゴのみ",
+                    "アッキのみ", "タラプのみ", "しろいハーブ", "パワフルハーブ"
+                ];
+                return items[Math.floor(Math.random() * items.length)];
+            },
+
+            generateRandomTeamData: function (pIdx) {
+                const teamNames = this.getRandomPokemonTeam();
+                const teamData = [];
+
+                teamNames.forEach((name, i) => {
+                    const pData = pokemonDB[name];
+                    const moves = this.getRandomMoveSet(name);
+                    const item = this.getRandomItem();
+                    const natureKeys = Object.keys(NATURE_TABLE).filter(k => k !== '1.0');
+                    const nature = natureKeys[Math.floor(Math.random() * natureKeys.length)];
+
+                    // Assign EVs: sum must be 504.
+                    const statsList = ['h', 'a', 'b', 'c', 'd', 's'];
+                    const evs = { h: 0, a: 0, b: 0, c: 0, d: 0, s: 0 };
+                    // Shuffle stats and pick first 2 for 252
+                    const shuffledStats = statsList.sort(() => 0.5 - Math.random());
+                    evs[shuffledStats[0]] = 252;
+                    evs[shuffledStats[1]] = 252;
+
+                    // Assign IVs: sum must be 504 for team -> 168 per mon -> 28 per stat
+                    const ivs = { h: 28, a: 28, b: 28, c: 28, d: 28, s: 28 };
+
+                    teamData.push({
+                        name: name,
+                        item: item,
+                        nature: nature,
+                        moves: moves,
+                        evs: evs,
+                        ivs: ivs
+                    });
+                });
+                return teamData;
+            },
             checkForcedSwitchStart: function () {
                 const p = this.players[this.currentPlayerIndex];
                 if (p.team[p.activeIdx].currentHp === 0) {
@@ -2755,21 +2958,13 @@
                 return { damage: finalDmg, superEffective: typeEff, itemConsumed: defender.consumeItem };
             },
 
-            calcStats: function (prefix) {
-                const getVal = (id) => {
-                    const el = document.getElementById(id);
-                    return el ? (parseInt(el.value) || 0) : 0;
-                };
-                const lv = getVal(`${prefix}_lv`);
-                const natureKeyEl = document.getElementById(`${prefix}_nature`);
-                const natureKey = natureKeyEl ? natureKeyEl.value : "1.0";
+            calcStatsFromData: function (base, ivs, evs, lv, natureKey) {
                 const natureData = NATURE_TABLE[natureKey] || NATURE_TABLE["1.0"];
-
                 const calc = (stat, isHp) => {
-                    const base = getVal(`${prefix}_base_${stat}`);
-                    const iv = getVal(`${prefix}_iv_${stat}`);
-                    const ev = getVal(`${prefix}_ev_${stat}`);
-                    let core = Math.floor((2 * base + iv + Math.floor(ev / 4)) * lv / 100);
+                    const b = base[stat];
+                    const i = ivs[stat];
+                    const e = evs[stat];
+                    let core = Math.floor((2 * b + i + Math.floor(e / 4)) * lv / 100);
                     if (isHp) return core + lv + 10;
                     else {
                         let res = core + 5;
@@ -2782,6 +2977,31 @@
                     hp: calc('h', true), atk: calc('a', false), def: calc('b', false),
                     spa: calc('c', false), spd: calc('d', false), spe: calc('s', false)
                 };
+            },
+
+            calcStats: function (prefix) {
+                const getVal = (id) => {
+                    const el = document.getElementById(id);
+                    return el ? (parseInt(el.value) || 0) : 0;
+                };
+                const lv = getVal(`${prefix}_lv`);
+                const natureKeyEl = document.getElementById(`${prefix}_nature`);
+                const natureKey = natureKeyEl ? natureKeyEl.value : "1.0";
+
+                const base = {
+                    h: getVal(`${prefix}_base_h`), a: getVal(`${prefix}_base_a`), b: getVal(`${prefix}_base_b`),
+                    c: getVal(`${prefix}_base_c`), d: getVal(`${prefix}_base_d`), s: getVal(`${prefix}_base_s`)
+                };
+                const ivs = {
+                    h: getVal(`${prefix}_iv_h`), a: getVal(`${prefix}_iv_a`), b: getVal(`${prefix}_iv_b`),
+                    c: getVal(`${prefix}_iv_c`), d: getVal(`${prefix}_iv_d`), s: getVal(`${prefix}_iv_s`)
+                };
+                const evs = {
+                    h: getVal(`${prefix}_ev_h`), a: getVal(`${prefix}_ev_a`), b: getVal(`${prefix}_ev_b`),
+                    c: getVal(`${prefix}_ev_c`), d: getVal(`${prefix}_ev_d`), s: getVal(`${prefix}_ev_s`)
+                };
+
+                return this.calcStatsFromData(base, ivs, evs, lv, natureKey);
             },
 
             getRankMultiplier: function (stage) {
