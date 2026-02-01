@@ -291,8 +291,19 @@
     <div class="container">
         <!-- Start Screen -->
         <div id="screen-start" class="screen active">
-            <h1>ポケモン対戦シミュレーター (Gen 9)</h1>
-            <p style="text-align:center">3vs3 ローカル対戦 / CSV読み込み対応</p>
+            <h1 style="margin-bottom: 5px;">ポケモン対戦シミュレーター (Gen 9)</h1>
+            <p style="text-align:center; margin-top: 5px;">3vs3 ローカル対戦 / CSV読み込み対応</p>
+
+            <!-- Game Mode Selection -->
+            <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
+                <label style="margin-right: 20px; font-weight: bold; cursor: pointer;">
+                    <input type="radio" name="gameMode" value="pvp" checked onchange="app.setGameMode('pvp')"> プレイヤー vs
+                    プレイヤー
+                </label>
+                <label style="font-weight: bold; cursor: pointer;">
+                    <input type="radio" name="gameMode" value="cpu" onchange="app.setGameMode('cpu')"> プレイヤー vs CPU
+                </label>
+            </div>
 
             <!-- 追加: CSVアップロード UI とステータス -->
             <div class="file-upload-box" id="upload-area">
@@ -488,10 +499,15 @@
             players: [],
             setupPlayerIndex: 0,
             turn: 0,
-            currentPlayerIndex: 0,
-            gameActive: false,
+            turnActions: [],
+            history: [],
+            winner: null,
             weather: 'none',
             weatherTurns: 0,
+            trickRoomTurns: 0,
+            terrain: 'none',
+            terrainTurns: 0,
+            isSinglePlayer: false, // New flag for CPU mode
             endOfTurnStage: 0, // 0: not started, 1: damage processed, 2: completed
 
             // init: safer with element existence checks
@@ -1171,13 +1187,20 @@
                     const curtainSubEl = document.getElementById('curtain-sub');
                     if (curtainSubEl) curtainSubEl.innerText = "Player 2 に交代してください。準備ができたらボタンを押してください。";
                     const btnCurtain = document.getElementById('btn-curtain-action');
-                    if (btnCurtain) btnCurtain.onclick = () => {
-                        this.startSetup(1);
-                    };
-                    if (btnCurtain) btnCurtain.innerText = "Player 2 セットアップへ";
+                    if (btnCurtain) {
+                        btnCurtain.onclick = () => {
+                            this.startSetup(1);
+                        };
+                        btnCurtain.innerText = "Player 2 セットアップへ";
+                    }
                 } else {
                     this.initializeBattle();
                 }
+            },
+
+            setGameMode: function (mode) {
+                this.isSinglePlayer = (mode === 'cpu');
+                console.log("Game Mode:", mode);
             },
 
             savePlayerData: function (pIdx) {
@@ -1342,12 +1365,87 @@
                 }
             },
 
+            decideCpuAction: function () {
+                const p = this.players[1];
+                const activeMon = p.team[p.activeIdx];
+                const opponent = this.players[0].team[this.players[0].activeIdx];
+
+                // Delay to simulate thinking
+                setTimeout(() => {
+                    let bestMoveIdx = 0;
+                    let maxScore = -9999;
+
+                    const moves = activeMon.moves;
+                    const validMoves = [];
+
+                    moves.forEach((m, idx) => {
+                        if (!m.name || m.name === '-') return;
+                        let score = 0;
+
+                        // Prefer high damage moves
+                        if (m.category !== 'status') {
+                            const fakeAttacker = JSON.parse(JSON.stringify(activeMon));
+                            const fakeDefender = JSON.parse(JSON.stringify(opponent));
+                            // Basic damage calc simulation
+                            const dmgRes = this.calcDamage(fakeAttacker, fakeDefender, m);
+                            score = dmgRes.damage;
+                        } else {
+                            // Status moves gets a random score 0-50 to occasionally be picked
+                            score = Math.floor(Math.random() * 50);
+                        }
+                        validMoves.push({ idx, score });
+                    });
+
+                    if (validMoves.length > 0) {
+                        // Sort by score descending
+                        validMoves.sort((a, b) => b.score - a.score);
+
+                        // 70% chance to pick best, 20% 2nd best, 10% random
+                        const r = Math.random();
+                        if (r < 0.7) {
+                            bestMoveIdx = validMoves[0].idx;
+                        } else if (validMoves.length > 1 && r < 0.9) {
+                            bestMoveIdx = validMoves[1].idx;
+                        } else {
+                            bestMoveIdx = validMoves[Math.floor(Math.random() * validMoves.length)].idx;
+                        }
+                    }
+
+                    this.registerMove(bestMoveIdx);
+                }, 800);
+            },
+
+            decideCpuSwitch: function (isForced) {
+                const p = this.players[1];
+                const aliveIdx = p.team.findIndex((m, i) => m.currentHp > 0 && i !== p.activeIdx);
+
+                if (aliveIdx !== -1) {
+                    setTimeout(() => {
+                        if (isForced) {
+                            this.performForcedSwitch(aliveIdx);
+                        } else {
+                            this.registerMove(-1, aliveIdx);
+                        }
+                    }, 800);
+                } else {
+                    console.log("CPU has no pokemon left to switch to.");
+                }
+            },
+
             checkForcedSwitchStart: function () {
                 const p = this.players[this.currentPlayerIndex];
                 if (p.team[p.activeIdx].currentHp === 0) {
                     this.showSwitchScreen(true);
                 } else {
-                    this.showCurtain();
+                    if (this.isSinglePlayer) {
+                        if (this.currentPlayerIndex === 1) {
+                            this.decideCpuAction();
+                        } else {
+                            this.startTurnInput();
+                        }
+                    } else {
+                        this.showCurtain();
+                    }
                 }
             },
 
@@ -2798,12 +2896,16 @@
                     this.showSwitchScreen(true);
                     return;
                 }
-
                 // If everyone alive, start fresh turn
                 this.nextTurn();
             },
 
             showSwitchScreen: function (isForced) {
+                if (this.isSinglePlayer && this.currentPlayerIndex === 1) {
+                    this.decideCpuSwitch(isForced);
+                    return;
+                }
+
                 const p = this.players[this.currentPlayerIndex];
                 const activeMon = p.team[p.activeIdx];
 
@@ -2862,9 +2964,11 @@
             },
 
             nextTurn: function () {
-                this.showScreen('screen-curtain');
-                const pNameEl = document.getElementById('curtain-msg');
-                if (pNameEl) pNameEl.innerText = "ターン終了 - 次へ";
+                if (!this.isSinglePlayer) {
+                    this.showScreen('screen-curtain');
+                    const pNameEl = document.getElementById('curtain-msg');
+                    if (pNameEl) pNameEl.innerText = "ターン終了 - 次へ";
+                }
                 this.startTurnCycle();
             }
         };
