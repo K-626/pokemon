@@ -281,6 +281,29 @@
             border-radius: 8px;
             background: #fafafa;
         }
+
+        /* Game Over Options */
+        .gameover-options {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .switch-move-list {
+            margin-top: 5px;
+            font-size: 12px;
+            color: #555;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2px;
+        }
+
+        .switch-move-item {
+            background: #f0f0f0;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
     </style>
 </head>
 
@@ -402,6 +425,18 @@
 
             <div class="log-box" id="battle-log"></div>
             <button class="btn" onclick="app.nextTurn()">次へ</button>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="screen-gameover" class="screen">
+            <h1 id="gameover-title" style="color: #d32f2f;">Game Set!</h1>
+            <h2 id="gameover-winner">Winner: Player X</h2>
+
+            <div class="gameover-options">
+                <button class="btn btn-blue" onclick="app.restartRandom()">もう一戦する (ランダム編成)</button>
+                <button class="btn btn-blue" onclick="app.restartSame()">もう一戦する (同じ編成)</button>
+                <button class="btn" onclick="app.restartManual()">ポケモンから組みなおす</button>
+            </div>
         </div>
     </div>
 
@@ -646,6 +681,24 @@
                     const drains = ['むねんのつるぎ', 'すいとる', 'メガドレイン', 'ギガドレイン', 'ウッドホーン', 'シャカシャカほう', 'パラボラチャージ', 'きゅうけつ', 'デスウイング', 'ゆめくい', 'ドレインパンチ', 'ドレインキッス'];
                     if (drains.includes(name)) m.effect.meta.drain = 0.5;
 
+                    // Curse & Endeavor
+                    if (name === 'のろい') { m.effect.meta.curse = true; m.target = 'self_or_enemy'; } // Logic handled in resolveTurn
+                    if (name === 'がむしゃら') { m.effect.meta.endeavor = true; }
+
+                    // New Move Flags (Set 2)
+                    if (name === 'いたみわけ') { m.effect.meta.painSplit = true; m.target = 'enemy'; }
+                    if (name === 'みらいよち' || name === 'Future Sight') { m.effect.meta.futureSight = true; }
+                    if (name === 'ほろびのうた' || name === 'Perish Song') { m.effect.meta.perish = true; m.target = 'all'; }
+                    if (name === 'はらだいこ' || name === 'Belly Drum') { m.effect.meta.bellyDrum = true; m.target = 'self'; }
+                    if (name === 'ねむる' || name === 'Rest') { m.effect.meta.rest = true; m.target = 'self'; }
+
+                    // Fixed Power 80 (Weight/Speed based moves)
+                    const fixed80 = ['ヘビーボンバー', 'ヒートスタンプ', 'ジャイロボール', 'エレキボール', 'くさむすび', 'けたぐり'];
+                    if (fixed80.includes(name)) {
+                        m.power = 80;
+                        m.effect.variablePower = null; // Clear if set
+                    }
+
                     // Protection
                     const protects = ['まもる', 'みきり', 'トーチカ', 'ブロッキング', 'ニードルガード', 'たたみがえし', 'キングシールド', 'トリックガード', 'スレッドトラップ', 'かえんのまもり'];
                     if (protects.includes(name)) {
@@ -840,10 +893,12 @@
                 if (str.match(/One-hit KO/i) || str.includes('一撃必殺') || str.includes('一撃でひんしになる')) { res.meta.ohko = true; }
 
                 // 11. Weather
-                if (str.match(/sunny/i) || str.includes('にほんばれ')) { res.meta.weather = 'sun'; }
-                if (str.match(/rain/i) || str.includes('あまごい')) { res.meta.weather = 'rain'; }
-                if (str.match(/sandstorm/i) || str.includes('すなあらし')) { res.meta.weather = 'sandstorm'; }
-                if (str.match(/snow/i) || str.includes('ゆきげしき')) { res.meta.weather = 'snow'; }
+                // 11. Weather (Strictly Name Parsing Only - see parseMoveCsv overrides or handle here by name)
+                // Removed loose description matching as requested.
+                // if (str.match(/sunny/i) || str.includes('にほんばれ')) { res.meta.weather = 'sun'; }
+                // if (str.match(/rain/i) || str.includes('あまごい')) { res.meta.weather = 'rain'; }
+                // if (str.match(/sandstorm/i) || str.includes('すなあらし')) { res.meta.weather = 'sandstorm'; }
+                // if (str.match(/snow/i) || str.includes('ゆきげしき')) { res.meta.weather = 'snow'; }
 
                 // 12. Fixed Damage
                 const fixed = str.match(/Inflicts (\d+) damage/i);
@@ -855,11 +910,17 @@
                 if (str.match(/must recharge/i) || str.includes('動けなくなる')) { res.meta.recharge = true; }
 
                 // 14. Variable Power Moves
-                if (str.match(/heavier the target/i)) { res.variablePower = { type: 'weight' }; }
+                // 14. Variable Power Moves
+                // Removed standard parsing for these to force 80 power later, or manually set them.
+                // Keeping HP based ones if they are not part of the "Fixed 80" request.
+                // The request said: "Change those that vary by weight/speed to fixed 80".
+                // So we remove detection for weight/speed.
+
+                // if (str.match(/heavier the target/i)) { res.variablePower = { type: 'weight' }; }
                 if (str.match(/lower the user's HP/i)) { res.variablePower = { type: 'hp_low' }; }
                 if (str.match(/higher the user's HP/i)) { res.variablePower = { type: 'hp_high' }; }
-                if (str.match(/slower the user/i)) { res.variablePower = { type: 'speed_slow' }; }
-                if (str.match(/faster the user/i)) { res.variablePower = { type: 'speed_fast' }; }
+                // if (str.match(/slower the user/i)) { res.variablePower = { type: 'speed_slow' }; }
+                // if (str.match(/faster the user/i)) { res.variablePower = { type: 'speed_fast' }; }
 
                 // 15. Manual Flags (Field/TR)
                 if (str.includes('エレキフィールド') || str.match(/Electric Terrain/i)) res.meta.field = 'electric';
@@ -911,10 +972,11 @@
                 console.log('normalized headers:', normHeaders);
 
                 // 緩いマッチでヘッダーのインデックスを探す
+                // 厳密なマッチでヘッダーのインデックスを探す
                 const findHeader = (candidates) => {
                     for (let i = 0; i < normHeaders.length; i++) {
                         for (let c of candidates) {
-                            if (normHeaders[i].indexOf(normalize(c)) !== -1) return i;
+                            if (normHeaders[i] === normalize(c)) return i;
                         }
                     }
                     return -1;
@@ -1022,6 +1084,8 @@
 
                     if (getEl(`${prefix}_type1`)) getEl(`${prefix}_type1`).value = data.t1;
                     if (getEl(`${prefix}_type2`)) getEl(`${prefix}_type2`).value = data.t2;
+
+                    this.updateRealStats(prefix);
                 }
             },
 
@@ -1068,9 +1132,9 @@
                             </div>
 
                             <div class="stat-row">
-                                <label>Lv</label><input type="number" id="${prefix}_lv" value="50" style="width:50px">
+                                <label>Lv</label><input type="number" id="${prefix}_lv" value="50" style="width:50px" oninput="app.updateRealStats('${prefix}')">
                                 <label>性格</label>
-                                <select id="${prefix}_nature">
+                                <select id="${prefix}_nature" onchange="app.updateRealStats('${prefix}')">
                                     <option value="1.0">--</option>
                                     <option value="adamant">いじっぱり(A↑ C↓)</option>
                                     <option value="jolly">ようき(S↑ C↓)</option>
@@ -1129,7 +1193,7 @@
                                 </select>
                             </div>
                             <div class="stat-row">
-                                <strong>種 / 個 / 努</strong>
+                                <strong>種 / 個 / 努 / 実</strong>
                             </div>
                             ${this.renderStatInput(prefix, 'h', 'HP')}
                             ${this.renderStatInput(prefix, 'a', '攻撃')}
@@ -1314,6 +1378,9 @@
                         }
                     });
                 });
+                for (let i = 0; i < TEAM_SIZE; i++) {
+                    this.updateRealStats(`p${pIdx}_m${i}`);
+                }
             },
             savePlayerData: function (pIdx) {
                 let team = [];
@@ -1361,12 +1428,26 @@
                 };
             },
 
+            updateRealStats: function (prefix) {
+                // Wait for DOM
+                setTimeout(() => {
+                    const s = this.calcStats(prefix);
+                    const map = { h: 'hp', a: 'atk', b: 'def', c: 'spa', d: 'spd', s: 'spe' };
+                    const set = (k) => {
+                        const el = document.getElementById(`${prefix}_real_${k}`);
+                        if (el) el.innerText = s[map[k]];
+                    };
+                    set('h'); set('a'); set('b'); set('c'); set('d'); set('s');
+                }, 0);
+            },
+
             renderStatInput: function (prefix, statKey, label) {
                 return `<div class="stat-row">
                     <label>${label}</label>
-                    <input type="number" id="${prefix}_base_${statKey}" placeholder="種" value="100">
-                    <input type="number" id="${prefix}_iv_${statKey}" placeholder="個" value="31">
-                    <input type="number" id="${prefix}_ev_${statKey}" placeholder="努" value="${statKey === 'a' || statKey === 's' ? 252 : 0}">
+                    <input type="number" id="${prefix}_base_${statKey}" placeholder="種" value="100" oninput="app.updateRealStats('${prefix}')">
+                    <input type="number" id="${prefix}_iv_${statKey}" placeholder="個" value="31" oninput="app.updateRealStats('${prefix}')">
+                    <input type="number" id="${prefix}_ev_${statKey}" placeholder="努" value="${statKey === 'a' || statKey === 's' ? 252 : 0}" oninput="app.updateRealStats('${prefix}')">
+                    <span id="${prefix}_real_${statKey}" style="width:40px; text-align:center; background:#eee; padding:3px; border-radius:4px; font-weight:bold;">-</span>
                 </div>`;
             },
 
@@ -1457,6 +1538,7 @@
                         mon.recharge = false;
                         mon.protectCount = 0;
                         mon.isProtected = false;
+                        mon.cursed = false; // Reset curse
                         this.checkBoosterEnergy(mon);
                     });
                 });
@@ -1910,6 +1992,30 @@
                             }
                         }
 
+                        // Confusion Check
+                        if (attacker.confusion) {
+                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は こんらんしている！` });
+                            attacker.confusion.turns--;
+                            if (attacker.confusion.turns <= 0) {
+                                this.turnQueue.push({ type: 'text', msg: `${attacker.name} の こんらんが とけた！` });
+                                attacker.confusion = null;
+                            } else {
+                                if (Math.random() < 0.33) {
+                                    this.turnQueue.push({ type: 'text', msg: 'わけもわからず 自分を攻撃した！' });
+                                    // Self Hit Calc (Power 40, Typeless Physical)
+                                    let a = attacker.stats.atk * this.getRankMultiplier(attacker.ranks.atk);
+                                    let d = attacker.stats.def * this.getRankMultiplier(attacker.ranks.def);
+                                    if (attacker.status && attacker.status.condition === 'brn') a = Math.floor(a * 0.5);
+                                    let dmg = Math.floor(Math.floor(Math.floor(2 * attacker.lv / 5 + 2) * 40 * a / d) / 50) + 2;
+
+                                    simState[actorIdx].currentHp -= dmg;
+                                    if (simState[actorIdx].currentHp < 0) simState[actorIdx].currentHp = 0;
+                                    this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: dmg });
+                                    return;
+                                }
+                            }
+                        }
+
                         // Paralysis check
                         if (attacker.status && attacker.status.condition === 'par') {
                             if (Math.random() < 0.25) {
@@ -2276,6 +2382,141 @@
                                     else if (res.superEffective === 0) effMsg = "効果がないようだ...";
                                     else if (res.superEffective < 1) effMsg = "効果はいまひとつのようだ...";
                                     if (res.superEffective > 0 && dmg === 0) dmg = 1;
+                                }
+
+                                // --- Endeavor (がむしゃら) ---
+                                if (effect.meta && effect.meta.endeavor) {
+                                    const diff = simState[targetIdx].currentHp - simState[actorIdx].currentHp;
+                                    if (diff > 0) {
+                                        dmg = diff;
+                                        effMsg = "がむしゃらに 攻撃した！";
+                                        // Skip standard type calc message
+                                    } else {
+                                        dmg = 0;
+                                        effMsg = "攻撃は 失敗した！";
+                                    }
+                                }
+
+                                // --- Curse (のろい) - Turn Effect Setup ---
+                                if (effect.meta && effect.meta.curse) {
+                                    if (attacker.types.includes('ghost')) {
+                                        // Ghost: Cut 1/2 HP, Curse target
+                                        dmg = 0; // No direct damage to target yet
+                                        const cost = Math.floor(attacker.stats.hp / 2);
+                                        simState[actorIdx].currentHp -= cost;
+                                        attacker.currentHp = simState[actorIdx].currentHp; // Sync immediate
+
+                                        if (!defender.status) { // Curse is not a standard status but let's treat it as a volitile or unique prop
+                                            defender.cursed = true; // New property
+                                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 体力を削って ${defender.name} に のろいをかけた！` });
+                                        } else {
+                                            defender.cursed = true; // Stack with status? Canonically yes.
+                                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 体力を削って ${defender.name} に のろいをかけた！` });
+                                        }
+                                        effMsg = null; // Handled
+                                    } else {
+                                        // Non-Ghost: Speed -1, Atk+1, Def+1 (Self)
+                                        dmg = 0;
+                                        if (!attacker.ranks) attacker.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
+
+                                        const chg = (k, v) => {
+                                            attacker.ranks[k] += v;
+                                            if (attacker.ranks[k] > 6) attacker.ranks[k] = 6;
+                                            if (attacker.ranks[k] < -6) attacker.ranks[k] = -6;
+                                        };
+                                        chg('spe', -1);
+                                        chg('atk', 1);
+                                        chg('def', 1);
+
+                                        this.turnQueue.push({ type: 'text', msg: `${attacker.name} の 素早さが 下がり 攻撃・防御が 上がった！` });
+                                        effMsg = null;
+                                    }
+                                }
+
+                                // --- Pain Split (いたみわけ) ---
+                                if (effect.meta && effect.meta.painSplit) {
+                                    const avg = Math.floor((simState[actorIdx].currentHp + simState[targetIdx].currentHp) / 2);
+                                    simState[actorIdx].currentHp = avg;
+                                    attacker.currentHp = avg;
+                                    simState[targetIdx].currentHp = avg;
+                                    this.turnQueue.push({ type: 'text', msg: `お互いの体力を 分かち合った！` }); // Shortened msg
+                                    dmg = 0; effMsg = null;
+                                }
+
+                                // --- Belly Drum (はらだいこ) ---
+                                if (effect.meta && effect.meta.bellyDrum) {
+                                    if (simState[actorIdx].currentHp <= Math.floor(attacker.stats.hp / 2)) {
+                                        this.turnQueue.push({ type: 'text', msg: '体力が足りない！' });
+                                    } else {
+                                        const cost = Math.floor(attacker.stats.hp / 2);
+                                        simState[actorIdx].currentHp -= cost;
+                                        attacker.currentHp = simState[actorIdx].currentHp;
+                                        if (!attacker.ranks) attacker.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
+                                        attacker.ranks.atk = 6;
+                                        this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: cost, msg: `${attacker.name} は 体力を削って パワー全開！` });
+                                        this.turnQueue.push({ type: 'text', msg: `${attacker.name} の 攻撃が 最大まで上がった！` });
+                                    }
+                                    dmg = 0;
+                                }
+
+                                // --- Rest (ねむる) ---
+                                if (effect.meta && effect.meta.rest) {
+                                    if (simState[actorIdx].currentHp === attacker.stats.hp) {
+                                        this.turnQueue.push({ type: 'text', msg: '体力が満タンだ！' });
+                                    } else {
+                                        const healed = attacker.stats.hp - simState[actorIdx].currentHp;
+                                        simState[actorIdx].currentHp = attacker.stats.hp;
+                                        attacker.currentHp = attacker.stats.hp;
+                                        attacker.status = { condition: 'slp', turns: 3 }; // 3 turns (sleeps for 2, wakes up on 3rd action check? commonly status turns decrement at start. set 3 to be safe for 2 turns sleep)
+                                        // Valid logic: Turns check at start. If turns>0 decrement. If turns<=0 wake.
+                                        // Set 3: Start Turn 1 (Rest).
+                                        // Start Turn 2: Check (3->2). Sleep.
+                                        // Start Turn 3: Check (2->1). Sleep.
+                                        // Start Turn 4: Check (1->0). Wake.
+                                        this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: -healed, msg: `${attacker.name} は 眠って回復した！` });
+                                    }
+                                    dmg = 0;
+                                }
+
+                                // --- Future Sight (みらいよち) ---
+                                if (effect.meta && effect.meta.futureSight) {
+                                    if (!this.futureSightQueue) this.futureSightQueue = [];
+                                    const res = this.calcDamage(attacker, defender, moveData, effect);
+                                    this.futureSightQueue.push({
+                                        turns: 3,
+                                        damage: res.damage,
+                                        targetIdx: targetIdx,
+                                        targetName: defender.name
+                                    });
+                                    this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 未来に攻撃を予知した！` });
+                                    dmg = 0;
+                                }
+
+                                // --- Perish Song (ほろびのうた) ---
+                                if (effect.meta && effect.meta.perish) {
+                                    [0, 1].forEach(pid => {
+                                        const p = this.players[pid];
+                                        const mon = p.team[p.activeIdx];
+                                        if (!mon.perish) {
+                                            mon.perish = 4;
+                                            this.turnQueue.push({ type: 'text', msg: `${mon.name} オブ ほろびのカウントが始まった！` }); // Debug msg style? Let's be standard.
+                                        }
+                                    });
+                                    this.turnQueue.push({ type: 'text', msg: 'ほろびのうたが 響き渡る！' });
+                                    dmg = 0;
+                                }
+
+                                // --- Apply Confusion ---
+                                if (effect.meta && effect.meta.confuse) {
+                                    if (!defender.confusion) {
+                                        let chance = effect.meta.confuseChance || 30;
+                                        if (move.category === 'status') chance = 100;
+                                        if (Math.random() * 100 < chance) {
+                                            defender.confusion = { turns: Math.floor(Math.random() * 4) + 1 };
+                                            this.turnQueue.push({ type: 'text', msg: `${defender.name} は こんらんした！` });
+                                        }
+                                    }
+                                    if (move.category === 'status') dmg = 0;
                                 }
 
                                 // --- Substitute Damage Redirection ---
@@ -2715,6 +2956,12 @@
                             }
                         }
 
+                        // Curse Damage
+                        if (mon.currentHp > 0 && mon.cursed) {
+                            const dmg = Math.floor(mon.stats.hp / 4) || 1;
+                            endQueue.push({ type: 'damage', targetIdx: idx, damage: dmg, msg: `${mon.name} は のろわれている！` });
+                        }
+
                         // Trapping Damage
                         if (mon.currentHp > 0 && mon.trapped) {
                             const tName = mon.trapped.name;
@@ -2727,6 +2974,43 @@
                             }
                         }
                     });
+
+                    // Perish Song (ほろびのうた)
+                    [p1, p2].forEach((p, idx) => {
+                        const mon = p.team[p.activeIdx];
+                        if (mon.currentHp > 0 && mon.perish) {
+                            mon.perish--;
+                            if (mon.perish === 0) {
+                                endQueue.push({ type: 'text', msg: `${mon.name} の ほろびのカウントが 0 になった！` });
+                                endQueue.push({ type: 'damage', targetIdx: idx, damage: mon.currentHp, msg: `${mon.name} は 滅びた！` });
+                            } else {
+                                endQueue.push({ type: 'text', msg: `${mon.name} の ほろびのカウントが ${mon.perish} になった！` });
+                            }
+                        }
+                    });
+
+                    // Future Sight (みらいよち)
+                    if (this.futureSightQueue) {
+                        for (let i = this.futureSightQueue.length - 1; i >= 0; i--) {
+                            const fs = this.futureSightQueue[i];
+                            fs.turns--;
+                            if (fs.turns === 0) {
+                                const targetP = this.players[fs.targetIdx];
+                                const active = targetP.team[targetP.activeIdx];
+                                if (active.currentHp > 0) {
+                                    endQueue.push({
+                                        type: 'damage',
+                                        targetIdx: fs.targetIdx,
+                                        damage: fs.damage,
+                                        msg: `${active.name} に 未来の攻撃が当たった！`
+                                    });
+                                } else {
+                                    endQueue.push({ type: 'text', msg: '未来の攻撃は 失敗した！' });
+                                }
+                                this.futureSightQueue.splice(i, 1);
+                            }
+                        }
+                    }
 
                     // Item Effects (Leftovers)
                     [p1, p2].forEach((p, idx) => {
@@ -2755,16 +3039,14 @@
 
                 if (p1Dead) {
                     if (!hasAlive(p1)) {
-                        alert("Player 2 Wins!");
-                        location.reload(); // Simple reset
+                        this.showGameOver(1);
                         return;
                     }
                     this.currentPlayerIndex = 0; this.showSwitchScreen(true); return;
                 }
                 if (p2Dead) {
                     if (!hasAlive(p2)) {
-                        alert("Player 1 Wins!");
-                        location.reload();
+                        this.showGameOver(0);
                         return;
                     }
                     this.currentPlayerIndex = 1; this.showSwitchScreen(true); return;
@@ -2784,6 +3066,16 @@
             calcDamage: function (attacker, defender, move, effect = null) {
                 const lv = attacker.lv;
                 let power = move.power;
+                let moveType = move.type;
+
+                // --- Weather Ball ---
+                if (move.name === 'ウェザーボール' || move.name === 'Weather Ball') {
+                    if (this.weather === 'sun' || this.weather === 'severe_sun') { moveType = 'fire'; power = 100; }
+                    else if (this.weather === 'rain' || this.weather === 'heavy_rain') { moveType = 'water'; power = 100; }
+                    else if (this.weather === 'sandstorm') { moveType = 'rock'; power = 100; }
+                    else if (this.weather === 'snow' || this.weather === 'hail') { moveType = 'ice'; power = 100; }
+                    else { power = 50; moveType = 'normal'; }
+                }
 
                 // --- Variable Power Check ---
                 if (effect && effect.variablePower) {
@@ -2818,121 +3110,150 @@
 
                 if (power <= 0) return { damage: 0, superEffective: 1 };
 
-                let a = (move.category === 'physical') ? attacker.stats.atk : attacker.stats.spa;
-                let d = (move.category === 'physical') ? defender.stats.def : defender.stats.spd;
+                // 1. Determine Stats (A and D)
+                const isPhys = move.category === 'physical';
+                let a = isPhys ? attacker.stats.atk : attacker.stats.spa;
+                let d = isPhys ? defender.stats.def : defender.stats.spd;
 
-                // Rank Multipliers
-                const atkRank = (move.category === 'physical') ? attacker.ranks.atk : attacker.ranks.spa;
-                const defRank = (move.category === 'physical') ? defender.ranks.def : defender.ranks.spd;
-                a = Math.floor(a * this.getRankMultiplier(atkRank));
-                d = Math.floor(d * this.getRankMultiplier(defRank));
+                // 1a. Rank Modifiers
+                const atkRank = isPhys ? attacker.ranks.atk : attacker.ranks.spa;
+                const defRank = isPhys ? defender.ranks.def : defender.ranks.spd;
 
-                // Booster Energy (Stat Boost)
+                // Critical Hit ignores negative Attack stages and positive Defense stages
+                const critRate = (effect && effect.meta && effect.meta.critRate) ? 2 : 0;
+                const critChance = (critRate >= 2) ? 0.5 : 0.04;
+                const isCrit = Math.random() < critChance;
+
+                let effectiveAtkRank = atkRank;
+                let effectiveDefRank = defRank;
+
+                if (isCrit) {
+                    if (effectiveAtkRank < 0) effectiveAtkRank = 0;
+                    if (effectiveDefRank > 0) effectiveDefRank = 0;
+                }
+
+                a = Math.floor(a * this.getRankMultiplier(effectiveAtkRank));
+                d = Math.floor(d * this.getRankMultiplier(effectiveDefRank));
+
+                // 1b. Weather Stat Boosts (Sand/Snow) - Stat Level
+                if (this.weather === 'sandstorm' && defender.types.includes('rock') && !isPhys) {
+                    d = Math.floor(d * 1.5); // Rock gets SpD boost in Sand
+                }
+                if (this.weather === 'snow' && defender.types.includes('ice') && isPhys) {
+                    d = Math.floor(d * 1.5); // Ice gets Def boost in Snow (Gen 9)
+                }
+
+                // 1c. Protosynthesis / Quark Drive (Booster Energy) - Stat Level
                 if (attacker.item === 'ブーストエナジー' && attacker.boosterStat) {
-                    const cat = (move.category === 'physical') ? 'atk' : 'spa';
+                    const cat = isPhys ? 'atk' : 'spa';
                     if (attacker.boosterStat === cat) a = Math.floor(a * 1.3);
                 }
                 if (defender.item === 'ブーストエナジー' && defender.boosterStat) {
-                    const cat = (move.category === 'physical') ? 'def' : 'spd';
+                    const cat = isPhys ? 'def' : 'spd';
                     if (defender.boosterStat === cat) d = Math.floor(d * 1.3);
                 }
 
-                // Burn
-                if (attacker.status && attacker.status.condition === 'brn' && move.category === 'physical') {
-                    a = Math.floor(a * 0.5);
+                // 1d. Choice Items / Assault Vest - Stat Level
+                if (isPhys && attacker.item === 'こだわりハチマキ') a = Math.floor(a * 1.5);
+                if (!isPhys && attacker.item === 'こだわりメガネ') a = Math.floor(a * 1.5);
+                if (!isPhys && defender.item === 'とつげきチョッキ') d = Math.floor(d * 1.5);
+
+                // 2. Base Damage Calculation
+                // Formula: floor(floor(floor(2 * L / 5 + 2) * Power * A / D) / 50) + 2
+                let baseDmg = Math.floor(Math.floor(Math.floor(2 * lv / 5 + 2) * power * a / d) / 50) + 2;
+
+                // 3. Modifiers (Chain)
+
+                // 3a. Weather (Damage Level) - Sun/Rain
+                if (this.weather === 'sun') {
+                    if (moveType === 'fire') baseDmg = Math.floor(baseDmg * 1.5);
+                    if (moveType === 'water') baseDmg = Math.floor(baseDmg * 0.5);
+                } else if (this.weather === 'rain') {
+                    if (moveType === 'water') baseDmg = Math.floor(baseDmg * 1.5);
+                    if (moveType === 'fire') baseDmg = Math.floor(baseDmg * 0.5);
                 }
 
-                // Weather boosts/drops (applied to Power or Stats usually, but here as multipliers)
-                // Note: Standard Gen 9 applies weather to Damage, but some calc apply to Power/Stats.
-                // Keeping as modifiers for now unless specified otherwise, but strict reading of user formula doesn't mention weather inside.
-                // We'll treat Weather as an external modifier to be safe, or include in Power if we want to be very compact.
-                // However, user specifically asked about Type Eff.
+                // 3b. Critical Hit
+                if (isCrit) {
+                    baseDmg = Math.floor(baseDmg * 1.5);
+                }
 
-                // Type Effectiveness (Now applied EARLY as per request)
+                // 3c. Random (0.85 to 1.00)
+                // Gen 3+ Formula: floor(Initial * (random(85,100) / 100))
+                const rnd = Math.floor(Math.random() * 16) + 85;
+                baseDmg = Math.floor(baseDmg * rnd / 100);
+
+                // 3d. STAB
+                if (attacker.types.includes(moveType)) {
+                    baseDmg = Math.floor(baseDmg * 1.5); // Adaptability would be 2.0
+                }
+
+                // 3e. Type Effectiveness
                 let typeEff = 1.0;
                 defender.types.forEach(defT => {
-                    if (defT !== 'none' && TYPE_CHART[move.type] && TYPE_CHART[move.type][defT] !== undefined) {
-                        typeEff *= TYPE_CHART[move.type][defT];
+                    if (defT !== 'none' && TYPE_CHART[moveType] && TYPE_CHART[moveType][defT] !== undefined) {
+                        typeEff *= TYPE_CHART[moveType][defT];
                     }
                 });
+                baseDmg = Math.floor(baseDmg * typeEff);
 
-                // --- Main Formula: (Lv*2/5 + 2) * Power * TypeEff * A / D ---
-                const levelFactor = Math.floor(2 * lv / 5 + 2);
+                // 3e-2. Freeze-Dry (Water Exception)
+                if (move.name === 'フリーズドライ' || move.name === 'Freeze-Dry') {
+                    // Check if target has water type
+                    if (defender.types.includes('water')) {
+                        // Logic: If it was resisting ice (0.5) because of water, it should be 2.0.
+                        // Standard calc: Ice vs Water = 0.5.
+                        // Freeze-Dry vs Water = 2.0.
+                        // So we need to multiply by 4?
+                        // It's cleaner to re-calculate type eff or adjust simply.
+                        // Let's just do a manual patch.
+                        // If typeEff includes the 0.5 from Water, cancel it and apply 2.0.
+                        // But defender might have other types (e.g. Water/Flying).
+                        // Ice vs Water/Flying = 0.5 * 2 = 1.0. 
+                        // Freeze-Dry vs Water/Flying = 2.0 * 2 = 4.0.
+                        // So yes, we multiply by 4 if Water is present.
+                        // Wait, Water resists Ice? Yes. 
+                        // So normally Ice vs Water is 0.5. We want it to be 2.0.
+                        // 0.5 * 4 = 2.0. Correct.
 
-                // Using floor at each major multiplication step to mimic integer math
-                // Chain: LevelFactor * Power * TypeEff * A
-                // We can do it in one shot or step by step. Step by step is safer against precision issues.
+                        // What if target is Water/Ice?
+                        // Ice vs Water/Ice = 0.5 * 0.5 = 0.25.
+                        // Freeze-Dry vs Water/Ice = 2.0 * 0.5 = 1.0.
+                        // 0.25 * 4 = 1.0. Correct.
 
-                let num = levelFactor * power;
-                num = Math.floor(num * typeEff); // Applying Type Eff here!
-                num = Math.floor(num * a);
-
-                let base = Math.floor(num / d);
-                base = Math.floor(base / 50) + 2;
-
-                // Modifiers (STAB, Weather, Crit, Random)
-                let multi = 1.0;
-
-                // Weather
-                if (this.weather === 'sun') {
-                    if (move.type === 'fire') multi *= 1.5;
-                    if (move.type === 'water') multi *= 0.5;
-                } else if (this.weather === 'rain') {
-                    if (move.type === 'water') multi *= 1.5;
-                    if (move.type === 'fire') multi *= 0.5;
+                        baseDmg = Math.floor(baseDmg * 4);
+                        // Also update superEffective flag for message
+                        typeEff *= 4;
+                    }
                 }
 
-                // STAB
-                if (attacker.types.includes(move.type)) multi *= 1.5;
-
-                // Terrain Modifiers
-                const isGrounded = !defender.types.includes('flying');
-                const isUserGrounded = !attacker.types.includes('flying');
-
-                if (this.terrain === 'electric' && move.type === 'electric' && isUserGrounded) multi *= 1.3;
-                if (this.terrain === 'grassy' && move.type === 'grass' && isUserGrounded) multi *= 1.3;
-                if (this.terrain === 'psychic' && move.type === 'psychic' && isUserGrounded) multi *= 1.3;
-                if (this.terrain === 'misty' && move.type === 'dragon' && isGrounded) multi *= 0.5;
-
-                // Grassy Terrain Earthquake nerf
-                if (this.terrain === 'grassy' && ['じしん', 'じならし', 'マグニチュード'].includes(move.name)) multi *= 0.5;
-
-                // Crit
-                const critRate = (effect && effect.meta && effect.meta.critRate) ? 2 : 0;
-                const critChance = (critRate >= 2) ? 0.5 : 0.04;
-                if (Math.random() < critChance) {
-                    multi *= 1.5;
+                // 3f. Burn
+                if (attacker.status && attacker.status.condition === 'brn' && isPhys && move.name !== 'からげんき') {
+                    baseDmg = Math.floor(baseDmg * 0.5);
                 }
 
-                // Random (0.85 - 1.00)
-                const rnd = (Math.floor(Math.random() * 16) + 85) / 100;
-
-                let finalDmg = Math.floor(base * multi * rnd);
-
-                // --- Item: Offense Modifiers ---
-                // Life Orb (1.3x)
-                if (attacker.item === 'いのちのたま') finalDmg = Math.floor(finalDmg * 1.3);
-
-                // Punching Glove (1.1x)
+                // 3g. Items / Terrain / Other
+                // Life Orb
+                if (attacker.item === 'いのちのたま') baseDmg = Math.floor(baseDmg * 1.3);
+                // Punching Glove
                 if (attacker.item === 'パンチグローブ' && (move.name.includes('パンチ') || move.name.includes('拳'))) {
-                    finalDmg = Math.floor(finalDmg * 1.1);
+                    baseDmg = Math.floor(baseDmg * 1.1);
                 }
 
-                // Specialist/Band/Specs (Stat modifiers applied to damage for simplicity, or we re-calc A/SpA above)
-                // Standard is modifying the stat, but we can approximate by modifying final damage or A/D earlier.
-                // Re-calculating A/D correctly:
-                // Note: We used `a` and `d` variables earlier. Let's adjust them effectively by multiplier here?
-                // No, standard is modification of the Stat value itself.
-                // Let's modify the `a` and `d` logic in the code above instead for cleaner implementation.
-                // HOWEVER, since I am replacing a block late in the function, I will apply them as multipliers to final damage relative to stat boosts.
-                if (move.category === 'physical' && attacker.item === 'こだわりハチマキ') finalDmg = Math.floor(finalDmg * 1.5);
-                if (move.category === 'special' && attacker.item === 'こだわりメガネ') finalDmg = Math.floor(finalDmg * 1.5);
+                // Terrain Damage Modifiers
+                const isUserGrounded = !attacker.types.includes('flying') && attacker.item !== 'ふうせん'; // Simple check
+                const isTargetGrounded = !defender.types.includes('flying') && defender.item !== 'ふうせん';
 
-                // --- Item: Defense Modifiers ---
-                // Assault Vest (1.5x SpD) -> equivalent to 2/3 damage
-                if (move.category === 'special' && defender.item === 'とつげきチョッキ') finalDmg = Math.floor(finalDmg / 1.5);
+                if (this.terrain === 'electric' && move.type === 'electric' && isUserGrounded) baseDmg = Math.floor(baseDmg * 1.3); // Gen 9 is approx 1.3
+                if (this.terrain === 'grassy' && move.type === 'grass' && isUserGrounded) baseDmg = Math.floor(baseDmg * 1.3);
+                if (this.terrain === 'psychic' && move.type === 'psychic' && isUserGrounded) baseDmg = Math.floor(baseDmg * 1.3);
+                if (this.terrain === 'misty' && move.type === 'dragon' && isTargetGrounded) baseDmg = Math.floor(baseDmg * 0.5);
 
-                // Type-Resist Berries (Halve damage if Super Effective)
+                if (this.terrain === 'grassy' && ['じしん', 'じならし', 'マグニチュード'].includes(move.name)) {
+                    baseDmg = Math.floor(baseDmg * 0.5);
+                }
+
+                // Type-Resist Berries
                 if (typeEff > 1) {
                     const berryMap = {
                         'オッカのみ': 'fire', 'イトケのみ': 'water', 'ソクノのみ': 'electric', 'リリバのみ': 'grass',
@@ -2941,21 +3262,15 @@
                         'カシブのみ': 'ghost', 'ロゼルのみ': 'fairy', 'ナモのみ': 'dark', 'リリバのみ': 'steel'
                     };
                     if (berryMap[defender.item] === move.type) {
-                        finalDmg = Math.floor(finalDmg * 0.5);
-                        defender.consumeItem = true; // Mark for consumption
-                        // Log? Can't log easily from calcDamage without queue ref. Will handle log in resolveTurn or return flag.
-                    }
-                    if (defender.item === 'ナゾのみ') {
-                        defender.consumeItem = true; // Enigma Berry activates on SE hit
-                        // Logic handled in resolveTurn for healing
+                        baseDmg = Math.floor(baseDmg * 0.5);
+                        defender.consumeItem = true;
                     }
                 }
 
-                // Initial 0.5x Global Reduction (keeping it as per previous code)
-                finalDmg = Math.floor(finalDmg * 0.5);
+                // Final Protection Check (not full impl, but basic)
+                if (baseDmg < 1 && typeEff > 0) baseDmg = 1; // Minimum damage 1 unless immune
 
-                // Return flag if item consumed?
-                return { damage: finalDmg, superEffective: typeEff, itemConsumed: defender.consumeItem };
+                return { damage: baseDmg, superEffective: typeEff, itemConsumed: defender.consumeItem, isCrit: isCrit };
             },
 
             calcStatsFromData: function (base, ivs, evs, lv, natureKey) {
@@ -3156,9 +3471,48 @@
 
                     if (mon.currentHp === 0) card.classList.add('disabled');
 
-                    const nameSpan = document.createElement('span');
-                    nameSpan.innerText = `${idx + 1}: ${mon.name} (${mon.currentHp}/${mon.stats.hp})`;
-                    card.appendChild(nameSpan);
+                    // Base Info
+                    const infoDiv = document.createElement('div');
+                    infoDiv.style.flex = "1";
+                    infoDiv.innerHTML = `<strong>${idx + 1}: ${mon.name}</strong> <span style="font-size:12px">Lv.${mon.lv}</span><br>HP: ${mon.currentHp}/${mon.stats.hp}`;
+
+                    // Status Icon
+                    if (mon.status) {
+                        const sMap = { brn: '火', par: '麻', psn: '毒', slp: '眠', frz: '氷' };
+                        infoDiv.innerHTML += ` <span style="background:#ff5252; color:white; padding:1px 4px; border-radius:3px; font-size:10px;">${sMap[mon.status.condition] || mon.status.condition}</span>`;
+                    }
+
+                    card.appendChild(infoDiv);
+
+                    // Move List (Enhanced)
+                    const moveDiv = document.createElement('div');
+                    moveDiv.className = 'switch-move-list';
+                    // moveDiv.style.marginLeft = "10px"; // Optional spacing
+
+                    mon.moves.forEach(m => {
+                        if (m.name && m.name !== '-') {
+                            const mItem = document.createElement('div');
+                            mItem.className = 'switch-move-item';
+                            mItem.innerText = m.name;
+                            moveDiv.appendChild(mItem);
+                        }
+                    });
+
+                    // Create a wrapper for layout if needed, or just append
+                    // To keep layout clean, maybe put moves on a new line or right side?
+                    // Let's put them below the name for clarity as requested "交代先の技などが見れるように"
+
+                    const wrapper = document.createElement('div');
+                    wrapper.style.display = 'flex';
+                    wrapper.style.flexDirection = 'column';
+                    wrapper.style.width = '100%';
+
+                    wrapper.appendChild(infoDiv);
+                    wrapper.appendChild(moveDiv);
+
+                    card.innerHTML = ''; // Clear previous simple append
+                    card.appendChild(wrapper);
+
 
                     card.onclick = () => {
                         if (mon.currentHp === 0) return;
@@ -3190,6 +3544,115 @@
                     if (pNameEl) pNameEl.innerText = "ターン終了 - 次へ";
                 }
                 this.startTurnCycle();
+            },
+
+            // --- Game Over & Restart ---
+            showGameOver: function (winnerIdx) {
+                this.winner = this.players[winnerIdx];
+                this.showScreen('screen-gameover');
+                const title = document.getElementById('gameover-winner');
+                if (title) title.innerText = `Winner: ${this.winner.name}`;
+            },
+
+            restartRandom: function () {
+                // Generate new random teams for both players
+                if (this.isSinglePlayer) {
+                    // P1 Random
+                    const p1Data = this.generateRandomTeamData(0);
+                    this.applyRandomTeamToUi(0);
+                    this.players[0].team = this.convertDataToTeam(p1Data);
+
+                    // CPU Random
+                    const p2Data = this.generateRandomTeamData(1);
+                    this.players[1].team = this.convertDataToTeam(p2Data);
+                } else {
+                    // PvP
+                    [0, 1].forEach(i => {
+                        const d = this.generateRandomTeamData(i);
+                        this.applyRandomTeamToUi(i);
+                        this.players[i].team = this.convertDataToTeam(d);
+                    });
+                }
+                this.initializeBattle();
+            },
+
+            restartSame: function () {
+                // To reset same team, we need to restore HP and remove status
+                // But since 'team' objects are mutated during battle, we need to reset them carefully
+                // Simplest way is to recalculate stats from base/ev/iv/lv which we don't strictly keep in the 'team' object
+                // except inside 'stats' which is fine, but currentHp is modified.
+
+                // Let's iterate and just reset current HP to stats.hp.
+                // However, item consumption etc is also an issue.
+                // Ideally, we should re-read from UI inputs or keep a "clean copy".
+                // Since this is "Local Sim", let's re-read from UI if possible, OR just hard reset what we can.
+                // app.savePlayerData() reads from UI. So calling that might work if UI wasn't destroyed.
+                // The setup UI is hidden but elements exist.
+
+                if (this.isSinglePlayer) {
+                    // P1 from UI
+                    this.savePlayerData(0);
+
+                    // CPU needs regeneration or reset. 
+                    // If we want "Same Composition", we need the CPU's original data.
+                    // We didn't store CPU clean data. 
+                    // Let's just regenerate CPU to be fair (or maybe user wants to retry against same CPU?)
+                    // "Same Config" usually implies same matchup.
+                    // BUT for now, let's just regenerate CPU if we can't easily restore.
+                    // Actually, let's try to reset the existing CPU team objects.
+                    this.players[1].team.forEach(m => {
+                        m.currentHp = m.stats.hp;
+                        m.status = null;
+                        m.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 };
+                        // Item restoration is tricky if we don't know original item.
+                        // We check consumption flag? We didn't track "original item".
+                        // Let's assume for CPU we just full heal. Item consumed is lost unless we track it.
+                        // Let's add 'originalItem' tracking in future, but for now just heal HP.
+                    });
+                } else {
+                    // PvP - both from UI
+                    this.savePlayerData(0);
+                    this.savePlayerData(1);
+                }
+                this.initializeBattle();
+            },
+
+            restartManual: function () {
+                location.reload();
+            },
+
+            // Helper to convert random data to full team structure without UI dependency
+            convertDataToTeam: function (dataList) {
+                return dataList.map(d => {
+                    const poke = pokemonDB[d.name];
+                    const base = poke ? { h: poke.hp, a: poke.atk, b: poke.def, c: poke.spa, d: poke.spd, s: poke.spe } : { h: 100, a: 100, b: 100, c: 100, d: 100, s: 100 };
+                    const stats = this.calcStatsFromData(base, d.ivs, d.evs, 50, d.nature);
+
+                    const moves = d.moves.map(mName => {
+                        const m = moveDB[mName];
+                        return m ? { name: mName, type: m.type, category: m.category, power: m.power } : { name: '-', type: 'normal', category: 'physical', power: 0 };
+                    });
+
+                    return {
+                        name: d.name,
+                        lv: 50,
+                        stats: stats,
+                        currentHp: stats.hp,
+                        ranks: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 },
+                        moves: moves,
+                        types: poke ? [poke.t1, poke.t2] : ['normal', 'none'],
+                        status: null,
+                        item: d.item,
+                        consumeItem: false,
+                        substituteHP: 0,
+                        chargingMove: null,
+                        invulnerableState: null,
+                        trapped: null,
+                        recharge: false,
+                        protectCount: 0,
+                        isProtected: false
+                    };
+                });
             }
         };
 
