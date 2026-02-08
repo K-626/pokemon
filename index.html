@@ -666,7 +666,7 @@
                         power: (idxPower !== -1) ? (parseInt(row[idxPower]) || 0) : 0,
                         accuracy: (idxAcc !== -1) ? (parseInt(row[idxAcc]) || 100) : 100,
                         priority: (idxPriority !== -1) ? (parseInt(row[idxPriority]) || 0) : 0,
-                        effect: this.parseMoveEffect(effStr)
+                        effect: this.parseMoveEffect(effStr + ` [NAME_STATUS:${name}]`)
                     };
 
                     // --- Name-based Overrides ---
@@ -684,6 +684,7 @@
                     // Curse & Endeavor
                     if (name === 'のろい') { m.effect.meta.curse = true; m.target = 'self_or_enemy'; } // Logic handled in resolveTurn
                     if (name === 'がむしゃら') { m.effect.meta.endeavor = true; }
+                    if (['ボルトチェンジ', 'とんぼがえり', 'クイックターン'].includes(name)) m.effect.meta.switchingMove = true;
 
                     // New Move Flags (Set 2)
                     if (name === 'いたみわけ') { m.effect.meta.painSplit = true; m.target = 'enemy'; }
@@ -691,6 +692,18 @@
                     if (name === 'ほろびのうた' || name === 'Perish Song') { m.effect.meta.perish = true; m.target = 'all'; }
                     if (name === 'はらだいこ' || name === 'Belly Drum') { m.effect.meta.bellyDrum = true; m.target = 'self'; }
                     if (name === 'ねむる' || name === 'Rest') { m.effect.meta.rest = true; m.target = 'self'; }
+
+                    // New Move Flags (Set 3)
+                    if (name === 'げきりん' || name === 'Outrage') { m.effect.meta.outrage = true; m.target = 'random'; } // Similar to Thrash
+                    if (name === 'まねっこ' || name === 'Copycat') { m.effect.meta.copycat = true; m.target = 'self'; }
+                    if (name === 'ゆびをふる' || name === 'Metronome') { m.effect.meta.metronome = true; m.target = 'self'; }
+                    if (name === 'ひかりのかべ' || name === 'Light Screen') { m.effect.meta.lightScreen = true; m.target = 'self'; }
+                    if (name === 'リフレクター' || name === 'Reflect') { m.effect.meta.reflect = true; m.target = 'self'; }
+                    if (name === 'じこあんじ' || name === 'Psych Up') { m.effect.meta.psychUp = true; m.target = 'enemy'; }
+                    if (name === 'アシストパワー' || name === 'Stored Power') { m.effect.meta.storedPower = true; }
+                    if (name === 'しおふき' || name === 'ふんか' || name === 'Water Spout' || name === 'Eruption') {
+                        m.effect.variablePower = { type: 'hp_high' };
+                    }
 
                     // Fixed Power 80 (Weight/Speed based moves)
                     const fixed80 = ['ヘビーボンバー', 'ヒートスタンプ', 'ジャイロボール', 'エレキボール', 'くさむすび', 'けたぐり'];
@@ -784,6 +797,18 @@
                     if (name === 'トリックルーム') m.effect.meta.trickroom = true;
                     if (name === 'どろぼう' || name === 'ほしがる') m.effect.meta.steal = true;
                     if (name === 'トリック' || name === 'すりかえ') m.effect.meta.swapItem = true;
+                    if (name === 'バトンタッチ') { m.effect.meta.batonPass = true; m.category = 'status'; }
+                    if (name === 'ゆめくい') { m.effect.meta.dreamEater = true; m.effect.meta.drain = 0.5; }
+                    if (name === 'へんしん') { m.effect.meta.transform = true; m.category = 'status'; }
+                    if (name === 'ふういん') { m.effect.meta.imprison = true; m.category = 'status'; }
+                    if (name === 'もえつきる') m.effect.meta.burnUp = true;
+                    if (name === 'ほろびのうた' || name === 'Perish Song') { m.effect.meta.perishMove = true; m.target = 'all'; m.category = 'status'; }
+                    if (name === 'ねこのて' || name === 'Assist') { m.effect.meta.assist = true; m.target = 'self'; m.category = 'status'; }
+
+                    // Status moves should usually have 100% status chance
+                    if (m.category === 'status' && m.effect.meta.status) {
+                        m.effect.meta.statusChance = 100;
+                    }
 
                     count++;
                 }
@@ -827,6 +852,25 @@
                 if (str.match(/freeze/i) || str.includes('こおり')) { res.meta.status = 'frz'; res.meta.statusChance = 10; }
                 if (str.match(/confuse/i) || str.includes('混乱')) { res.meta.confuse = true; res.meta.confuseChance = 30; }
                 if (str.match(/sleep/i) || str.includes('眠り')) { res.meta.status = 'slp'; res.meta.statusChance = 100; }
+
+                // Refine chance based on text
+                if (str.match(/10%/)) res.meta.statusChance = 10;
+                else if (str.match(/20%/)) res.meta.statusChance = 20;
+                else if (str.match(/30%/)) res.meta.statusChance = 30;
+                else if (str.match(/50%/)) res.meta.statusChance = 50;
+                else if (str.match(/100%/)) res.meta.statusChance = 100;
+
+                // --- Status by Move Name (Strict) ---
+                if (str.includes('[NAME_STATUS]')) {
+                    const nameMatch = str.match(/\[NAME_STATUS:(.*)\]/);
+                    if (nameMatch) {
+                        const mName = nameMatch[1];
+                        if (['でんじは', 'へびにらみ', 'しびれごな'].includes(mName)) { res.meta.status = 'par'; res.meta.statusChance = 100; }
+                        if (['どくどく', 'どくのこな'].includes(mName)) { res.meta.status = 'psn'; res.meta.statusChance = 100; }
+                        if (['おにび'].includes(mName)) { res.meta.status = 'brn'; res.meta.statusChance = 100; }
+                        if (['ねむりごな', 'キノコのほうし', 'さいみんじゅつ', 'あくび'].includes(mName)) { res.meta.status = 'slp'; res.meta.statusChance = 100; }
+                    }
+                }
 
                 // 3. Flinch
                 if (str.match(/flinch/i) || str.includes('ひるみ')) { res.meta.flinchChance = 30; }
@@ -1566,9 +1610,6 @@
 
                 // Delay to simulate thinking
                 setTimeout(() => {
-                    let bestMoveIdx = 0;
-                    let maxScore = -9999;
-
                     const moves = activeMon.moves;
                     const validMoves = [];
 
@@ -1576,24 +1617,69 @@
                         if (!m.name || m.name === '-') return;
                         let score = 0;
 
-                        // Prefer high damage moves
                         if (m.category !== 'status') {
-                            const fakeAttacker = JSON.parse(JSON.stringify(activeMon));
-                            const fakeDefender = JSON.parse(JSON.stringify(opponent));
-                            // Basic damage calc simulation
-                            const dmgRes = this.calcDamage(fakeAttacker, fakeDefender, m);
+                            const dmgRes = this.calcDamage(activeMon, opponent, m);
+                            score = dmgRes.damage;
+
+                            // Boost super effective
+                            if (dmgRes.typeEff > 1) score *= 1.3;
+                            if (dmgRes.typeEff < 1) score *= 0.5;
+                            if (dmgRes.typeEff === 0) score = -100; // Do not use immune moves
+                        } else {
+                            // Status Move Scoring
+                            // Simple parsing for scoring purposes if not already pre-parsed in moveDB correctly
+                            const effect = m.effect || (moveDB[m.name] ? this.parseMoveEffect(moveDB[m.name].Effect) : null);
+
+                            if (!effect) {
+                                score = 10;
+                            } else {
+                                // Apply Status (if opponent has none)
+                                if (effect.meta.status && !opponent.status) {
+                                    score = 50; // Higher than average damage move early on
+                                    // Adjust for type immunity
+                                    if (effect.meta.status === 'par' && (opponent.types.includes('electric') || opponent.types.includes('ground'))) score = -10;
+                                    if (effect.meta.status === 'psn' && (opponent.types.includes('steel') || opponent.types.includes('poison'))) score = -10;
+                                    if (effect.meta.status === 'brn' && opponent.types.includes('fire')) score = -10;
+                                }
+
+                                // Buffs (Self)
+                                if (effect.statChanges) {
+                                    effect.statChanges.forEach(sc => {
+                                        if (sc.target === 'self' && sc.stage > 0) {
+                                            const current = activeMon.ranks ? activeMon.ranks[sc.stat] : 0;
+                                            if (current < 4) score += (30 * sc.stage);
+                                        }
+                                        if (sc.target === 'enemy' && sc.stage < 0) {
+                                            const current = opponent.ranks ? opponent.ranks[sc.stat] : 0;
+                                            if (current > -4) score += (25 * Math.abs(sc.stage));
+                                        }
+                                    });
+                                }
+
+                                // Weather/Terrain setters
+                                if (effect.meta.weather && this.weather !== effect.meta.weather) score = 40;
+                                if (effect.meta.terrain && this.terrain !== effect.meta.terrain) score = 40;
+
+                                // Healing
+                                if (effect.meta.heal && activeMon.currentHp < activeMon.stats.hp * 0.5) score = 60;
+                            }
                         }
+
+                        // Accuracy weighting
+                        const acc = m.accuracy || 100;
+                        if (acc > 0 && acc < 100) score *= (acc / 100);
+
+                        validMoves.push({ idx, score });
                     });
 
                     if (validMoves.length > 0) {
-                        // Sort by score descending
                         validMoves.sort((a, b) => b.score - a.score);
 
-                        // 70% chance to pick best, 20% 2nd best, 10% random
+                        // Pick best or 2nd best with high probability
                         const r = Math.random();
-                        if (r < 0.7) {
+                        if (r < 0.85) {
                             bestMoveIdx = validMoves[0].idx;
-                        } else if (validMoves.length > 1 && r < 0.9) {
+                        } else if (validMoves.length > 1 && r < 0.95) {
                             bestMoveIdx = validMoves[1].idx;
                         } else {
                             bestMoveIdx = validMoves[Math.floor(Math.random() * validMoves.length)].idx;
@@ -1626,8 +1712,12 @@
                 const candidates = Object.keys(pokemonDB);
                 if (candidates.length === 0) return [];
 
-                // Shuffle and pick 3
-                const shuffled = candidates.sort(() => 0.5 - Math.random());
+                // Fisher-Yates shuffle for fairness
+                const shuffled = [...candidates];
+                for (let i = shuffled.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+                }
                 return shuffled.slice(0, TEAM_SIZE);
             },
 
@@ -1640,9 +1730,11 @@
                 let stabMoves = [];
                 let otherMoves = [];
 
+                const englishRegex = /[a-zA-Z]/;
+
                 movesKeys.forEach(mKey => {
                     const m = moveDB[mKey];
-                    if (m.name === '-') return;
+                    if (m.name === '-' || englishRegex.test(m.name)) return;
                     if (poke && (m.type === poke.t1 || m.type === poke.t2)) {
                         stabMoves.push(m.name);
                     } else {
@@ -1650,20 +1742,31 @@
                     }
                 });
 
+                // Fisher-Yates shuffle helper
+                const shuffle = (array) => {
+                    for (let i = array.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [array[i], array[array[j]]] = [array[j], array[i]];
+                    }
+                };
+
+                // Re-implementing selection with better shuffle
                 const selected = [];
-                // 1. Pick 1 STAB if available
                 if (stabMoves.length > 0) {
                     const r = Math.floor(Math.random() * stabMoves.length);
                     selected.push(stabMoves[r]);
-                    stabMoves.splice(r, 1); // remove to avoid dupe
+                    stabMoves.splice(r, 1);
                 }
 
-                // 2. Fill rest with random mix
                 const pool = [...stabMoves, ...otherMoves];
+                // Shuffle pool
+                for (let i = pool.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [pool[i], pool[j]] = [pool[j], pool[i]];
+                }
+
                 while (selected.length < 4 && pool.length > 0) {
-                    const r = Math.floor(Math.random() * pool.length);
-                    selected.push(pool[r]);
-                    pool.splice(r, 1);
+                    selected.push(pool.pop());
                 }
 
                 // Fill with '-' if not enough
@@ -1679,7 +1782,7 @@
                     "ブーストエナジー", "クリアチャーム", "おんみつマント", "パンチグローブ",
                     "いかさまダイス", "じゃくてんほけん", "だっしゅつボタン", "レッドカード",
                     "ラムのみ", "オボンのみ", "カゴのみ",
-                    "アッキのみ", "タラプのみ", "しろいハーブ", "パワフルハーブ"
+                    "アッキのみ", "タラプのみ", "しろいハーブ", "パワフルハーブ", "くろいへどろ"
                 ];
                 return items[Math.floor(Math.random() * items.length)];
             },
@@ -1838,6 +1941,7 @@
                 const container = document.getElementById('move-buttons');
                 if (container) {
                     container.innerHTML = '';
+
                     activeMon.moves.forEach((m, idx) => {
                         if (!m.name || m.name === '-') return;
                         const btn = document.createElement('button');
@@ -1847,6 +1951,19 @@
                         btn.onclick = () => this.registerMove(idx);
                         container.appendChild(btn);
                     });
+
+                    // Show Current Item BELOW moves
+                    const itemEl = document.createElement('div');
+                    itemEl.style.gridColumn = 'span 2'; // span across both columns
+                    itemEl.style.marginTop = '10px';
+                    itemEl.style.padding = '5px 10px';
+                    itemEl.style.background = '#f5f5f5';
+                    itemEl.style.border = '1px solid #ddd';
+                    itemEl.style.borderRadius = '5px';
+                    itemEl.style.fontSize = '12px';
+                    itemEl.style.textAlign = 'center';
+                    itemEl.innerHTML = `持ち物: ${activeMon.item || 'なし'}`;
+                    container.appendChild(itemEl);
                 }
             },
 
@@ -2029,9 +2146,11 @@
                         const oldMon = actorP.team[simActiveIdx[actorIdx]];
                         const newMon = actorP.team[act.switchIdx];
 
-                        // Clear Substitute & Choice Lock on switch
+                        // Clear Substitute, Choice Lock, Transform, and Imprison on switch
                         oldMon.substituteHP = 0;
                         oldMon.choiceMove = null; // Reset choice lock
+                        oldMon.isTransformed = false;
+                        oldMon.isImprisoning = false;
                         this.checkBoosterEnergy(newMon);
 
                         this.turnQueue.push({
@@ -2093,7 +2212,134 @@
                             this.turnQueue.push({ type: 'text', msg: `${newMon.name} は 猛毒を浴びた！` });
                         }
                     } else if (act.type === 'move') {
-                        const move = attacker.moves[act.moveIdx];
+                        let move = attacker.moves[act.moveIdx];
+
+                        // --- Outrage Lock Check (Turn Start) ---
+                        if (attacker.outrage) {
+                            move = moveDB['げきりん'] || moveDB['Outrage'] || { name: 'げきりん', type: 'dragon', category: 'physical', power: 120, accuracy: 100, effect: { meta: { outrage: true } } };
+                            // Force target to random if needed, but resolveTurn handles random target logic?
+                            // For simplicity, we keep the original targetIdx unless we want to re-roll random.
+                            // Outrage targets random opponent in doubles, but here single battle is standard.
+                        }
+
+                        // --- Burn Up (もえつきる) Check ---
+                        if (move.name === 'もえつきる' && !attacker.types.includes('fire')) {
+                            this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
+                            return;
+                        }
+
+                        // --- Metronome (ゆびをふる) ---
+                        if (move.name === 'ゆびをふる' || move.name === 'Metronome') {
+                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 指を振った！` });
+                            const banned = ['ゆびをふる', 'まねっこ', 'バトンタッチ', 'へんしん', 'ふういん', 'まもる', 'みきり', 'みがわり'];
+                            const keys = Object.keys(moveDB).filter(k => !banned.includes(k) && k !== '-');
+                            const rndKey = keys[Math.floor(Math.random() * keys.length)];
+                            move = moveDB[rndKey];
+                            this.turnQueue.push({ type: 'text', msg: `${move.name} が 出た！` });
+                        }
+
+                        // --- Copycat (まねっこ) ---
+                        if (move.name === 'まねっこ' || move.name === 'Copycat') {
+                            if (this.lastMoveUsed) {
+                                this.turnQueue.push({ type: 'text', msg: `${attacker.name} は ${this.lastMoveUsed.name} を まねっこした！` });
+                                move = this.lastMoveUsed;
+                            } else {
+                                this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
+                                return;
+                            }
+                        }
+
+                        // --- Dream Eater (ゆめくい) ---
+                        if (move.name === 'ゆめくい' || move.name === 'Dream Eater') {
+                            if (!defender.status || defender.status.condition !== 'slp') {
+                                this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
+                                return;
+                            }
+                        }
+
+                        // --- Baton Pass (バトンタッチ) ---
+                        if (move.name === 'バトンタッチ' || move.name === 'Baton Pass') {
+                            const p = this.players[actorIdx];
+                            const bench = p.team.map((m, i) => ({ m, i })).filter(x => x.i !== p.activeIdx && x.m.currentHp > 0);
+                            if (bench.length > 0) {
+                                this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 手持ちに戻っていった！` });
+                                this.turnQueue.push({ type: 'forceSwitchAction', actorIdx: actorIdx, isBatonPass: true });
+                            } else {
+                                this.turnQueue.push({ type: 'text', msg: 'しかし 控えがいなかった！' });
+                            }
+                            return;
+                        }
+
+                        // --- Imprison (ふういん) ---
+                        if (move.name === 'ふういん' || move.name === 'Imprison') {
+                            attacker.isImprisoning = true;
+                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 周りの技を 封じ込めた！` });
+                            return;
+                        }
+
+                        // Imprison Check
+                        if (defender.isImprisoning) {
+                            const knownByEnemy = defender.moves.some(m => m.name === move.name);
+                            if (knownByEnemy) {
+                                this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 封印されているため 技が出せない！` });
+                                return;
+                            }
+                        }
+
+                        // --- Assist (ねこのて) ---
+                        if (move.name === 'ねこのて' || move.name === 'Assist') {
+                            const p = actorP;
+                            const teamMoves = p.team.flatMap((mon, idx) =>
+                                idx === p.activeIdx ? [] : mon.moves.filter(mv => mv && mv.name && mv.name !== '-')
+                            );
+                            const banned = ['ねこのて', 'Assist', 'ゆびをふる', 'Metronome', 'まねっこ', 'Copycat', 'へんしん', 'Transform', 'ふういん', 'Imprison', 'まもる', 'みきり', 'みがわり', 'カウンター', 'ミラーコート', 'ほろびのうた', 'バトンタッチ', 'ほえる', 'ふきとばし', 'ドラゴンテール', 'ともえなげ'];
+                            const candidates = teamMoves.filter(mv => !banned.includes(mv.name));
+                            if (candidates.length > 0) {
+                                const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+                                move = moveDB[chosen.name] || chosen;
+                                this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 仲間の技を 繰り出した！` });
+                                this.turnQueue.push({ type: 'text', msg: `${move.name}！` });
+                                // Continue with chosen move
+                            } else {
+                                this.turnQueue.push({ type: 'text', msg: 'しかし 技が出せなかった！' });
+                                return;
+                            }
+                        }
+
+                        // --- Perish Song (ほろびのうた) ---
+                        if (move.name === 'ほろびのうた' || move.name === 'Perish Song') {
+                            if (!attacker.perish) attacker.perish = 4;
+                            if (!defender.perish) defender.perish = 4;
+                            this.turnQueue.push({ type: 'text', msg: '滅びの歌が 聞こえてきた！' });
+                            return;
+                        }
+
+                        // --- Transform (へんしん) ---
+                        if (move.name === 'へんしん' || move.name === 'Transform') {
+                            if (attacker.isTransformed || defender.isTransformed) {
+                                this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
+                                return;
+                            }
+                            attacker.isTransformed = true;
+                            attacker.types = [...defender.types];
+                            attacker.stats = { ...defender.stats, hp: attacker.stats.hp }; // HP stays same
+                            attacker.ranks = defender.ranks ? { ...defender.ranks } : { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
+                            attacker.moves = defender.moves.map(m => ({ ...m, pp: 5, maxPp: 5 }));
+
+                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は ${defender.name} に へんしんした！` });
+                            return;
+                        }
+
+                        // --- Psych Up (じこあんじ) ---
+                        if (move.name === 'じこあんじ' || move.name === 'Psych Up') {
+                            if (defender.ranks) {
+                                attacker.ranks = JSON.parse(JSON.stringify(defender.ranks));
+                            } else {
+                                attacker.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
+                            }
+                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は ${defender.name} の 能力変化を コピーした！` });
+                            return; // Ends turn as it is a status move with only this effect
+                        }
 
                         // Psychic Terrain Block Check (Priority > 0 targeting enemy)
                         const moveData = moveDB[move.name] || move;
@@ -2267,6 +2513,7 @@
                         const accMult = this.getAccRankMultiplier(attackerAccRank);
                         const evaMult = this.getAccRankMultiplier(defenderEvaRank);
                         let accBase = CUSTOM_ACCURACY[move.name] !== undefined ? CUSTOM_ACCURACY[move.name] : (moveData.accuracy !== undefined ? moveData.accuracy : 100);
+                        if (attacker.item === '広角レンズ') accBase = Math.floor(accBase * 1.1);
 
                         // Invulnerability Check
                         let invulnerableMiss = false;
@@ -2436,10 +2683,18 @@
                                 // --- Pain Split (いたみわけ) ---
                                 if (effect.meta && effect.meta.painSplit) {
                                     const avg = Math.floor((simState[actorIdx].currentHp + simState[targetIdx].currentHp) / 2);
+                                    const diffAttacker = avg - simState[actorIdx].currentHp;
+                                    const diffDefender = avg - simState[targetIdx].currentHp;
+
                                     simState[actorIdx].currentHp = avg;
                                     attacker.currentHp = avg;
                                     simState[targetIdx].currentHp = avg;
-                                    this.turnQueue.push({ type: 'text', msg: `お互いの体力を 分かち合った！` }); // Shortened msg
+                                    defender.currentHp = avg;
+
+                                    this.turnQueue.push({ type: 'text', msg: `お互いの体力を 分かち合った！` });
+                                    this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: -diffAttacker, msg: '' });
+                                    this.turnQueue.push({ type: 'damage', targetIdx: targetIdx, damage: -diffDefender, msg: '' });
+
                                     dmg = 0; effMsg = null;
                                 }
 
@@ -2504,6 +2759,38 @@
                                     });
                                     this.turnQueue.push({ type: 'text', msg: 'ほろびのうたが 響き渡る！' });
                                     dmg = 0;
+                                }
+
+                                // --- Light Screen / Reflect (ひかりのかべ・リフレクター) ---
+                                if (effect.meta && (effect.meta.lightScreen || effect.meta.reflect)) {
+                                    if (!attacker.screens) attacker.screens = {};
+                                    if (effect.meta.lightScreen) {
+                                        attacker.screens.lightScreen = 5;
+                                        this.turnQueue.push({ type: 'text', msg: 'ひかりのかべで 攻撃への 守りを固めた！' }); // Correct msg? "味方の 特防が 上がった！" or "ひかりのかべが 現れた！"
+                                    }
+                                    if (effect.meta.reflect) {
+                                        attacker.screens.reflect = 5;
+                                        this.turnQueue.push({ type: 'text', msg: 'リフレクターで 物理攻撃への 守りを固めた！' });
+                                    }
+                                    dmg = 0;
+                                }
+
+                                // --- Psych Up (じこあんじ) ---
+                                if (effect.meta && effect.meta.psychUp) {
+                                    if (!attacker.ranks) attacker.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
+                                    if (!defender.ranks) defender.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
+                                    attacker.ranks = { ...defender.ranks };
+                                    this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 相手の 能力変化を コピーした！` });
+                                    dmg = 0;
+                                }
+
+                                // --- Outrage Init (げきりん・乱動) ---
+                                if (effect.meta && effect.meta.outrage) {
+                                    if (!attacker.outrage) {
+                                        // Start rampage
+                                        attacker.outrage = { turns: Math.floor(Math.random() * 2) + 2 }; // 2-3 turns
+                                        // Damage calc continues normally below
+                                    }
                                 }
 
                                 // --- Apply Confusion ---
@@ -2743,9 +3030,15 @@
 
                                             if (!immune) {
                                                 const condition = effect.meta.status || 'psn';
-                                                defender.status = { condition: condition, turns: 0 };
-                                                const map = { psn: '毒', tox: '猛毒', par: '麻痺', brn: '火傷', frz: '氷', slp: '眠り' };
-                                                this.turnQueue.push({ type: 'text', msg: `${defender.name} は ${map[condition]} になった！` });
+                                                let st = { condition: condition, turns: 0 };
+                                                if (condition === 'slp') {
+                                                    // User Request: Sleep Turns + 1 (Standard 1-3 -> 2-4)
+                                                    st.turns = Math.floor(Math.random() * 3) + 2;
+                                                }
+                                                defender.status = st;
+
+                                                const statusLabelMap = { psn: '毒', tox: '猛毒', par: '麻痺', brn: '火傷', frz: '氷', slp: '眠り' };
+                                                this.turnQueue.push({ type: 'text', msg: `${defender.name} は ${statusLabelMap[condition]} になった！` });
 
                                                 // Status Berry Check
                                                 const sItem = defender.item;
@@ -2763,12 +3056,90 @@
                                             }
                                         }
                                     }
+
+                                    // --- Reactive Items (Post-Hit Trigger) ---
+                                    if (totalDmg > 0 && simState[targetIdx].currentHp > 0) {
+                                        // Red Card (レッドカード)
+                                        if (defender.item === 'レッドカード' && !defender.consumeItem) {
+                                            defender.consumeItem = true;
+                                            this.turnQueue.push({ type: 'text', msg: `${defender.name} の レッドカードが 発動した！` });
+                                            // Force Attacker Switch (Random)
+                                            const p = this.players[actorIdx];
+                                            const bench = p.team.map((m, i) => ({ m, i })).filter(x => x.i !== p.activeIdx && x.m.currentHp > 0);
+                                            if (bench.length > 0) {
+                                                const rnd = bench[Math.floor(Math.random() * bench.length)];
+                                                this.turnQueue.push({ type: 'switch', actorIdx: actorIdx, newActiveIdx: rnd.i, oldName: attacker.name, newName: rnd.m.name });
+                                                // Actually update state in queue processing or here?
+                                                // turnQueue 'switch' type updates activeIdx visually and logically in processNextAction?
+                                                // Let's check processNextAction.
+                                                // Yes, it sets p.activeIdx.
+                                                // BUT, the current loop `order.forEach` might continue using the OLD active mon if we don't be careful.
+                                                // `resolveTurn` iterates `order`. If actor was first, and was forced out, the rest of the logic involves `attacker`.
+                                                // Since this is "Post-Hit", the turn for this pair is mostly done.
+                                                // If actor was second, this is end of turn.
+                                                // If actor was first, the second action (by defender) might target the NEW mon?
+                                                // `resolveTurn` uses `simActiveIdx` fixed at start. So logic continues targeting old slot?
+                                                // This is complex. For now, we queue the switch.
+                                            } else {
+                                                this.turnQueue.push({ type: 'text', msg: 'しかし 控えがいなかった！' });
+                                            }
+                                        }
+
+                                        // Eject Button (だっしゅつボタン)
+                                        if (defender.item === 'だっしゅつボタン' && !defender.consumeItem) {
+                                            defender.consumeItem = true;
+                                            this.turnQueue.push({ type: 'text', msg: `${defender.name} の だっしゅつボタンが 発動した！` });
+                                            // Force Defender Switch (Request)
+                                            // This should ideally prompt user.
+                                            // For automation simplicity: Random switch if CPU, or "Must Switch" state for Player.
+                                            // We will push a special 'forceSwitch' action?
+                                            // Or simplified: Just random switch for now to ensure mechanic works "normally" (stops turn).
+                                            const p = this.players[targetIdx];
+                                            const bench = p.team.map((m, i) => ({ m, i })).filter(x => x.i !== p.activeIdx && x.m.currentHp > 0);
+                                            if (bench.length > 0) {
+                                                // TODO: If Player, show UI.
+                                                // Simulating random for now to unblock mechanic.
+                                                const rnd = bench[Math.floor(Math.random() * bench.length)];
+                                                this.turnQueue.push({ type: 'switch', actorIdx: targetIdx, newActiveIdx: rnd.i, oldName: defender.name, newName: rnd.m.name });
+                                            }
+                                        }
+                                    }
                                     // Recoil (Damage based)
                                     if (effect.meta.recoil && totalDmg > 0) {
                                         const rec = Math.floor(totalDmg * effect.meta.recoil);
                                         simState[actorIdx].currentHp -= rec;
                                         if (simState[actorIdx].currentHp < 0) simState[actorIdx].currentHp = 0;
-                                        this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: rec, effMsg: '反動を受けた！', targetName: attacker.name });
+                                        this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: rec, effMsg: '反動のダメージを受けた！' });
+                                    }
+
+                                    // --- Switching Move Logic ---
+                                    if (effect.meta.switchingMove && totalDmg > 0 && simState[targetIdx].currentHp >= 0) {
+                                        const p = this.players[actorIdx];
+                                        const bench = p.team.map((m, i) => ({ m, i })).filter(x => x.i !== p.activeIdx && x.m.currentHp > 0);
+                                        if (bench.length > 0) {
+                                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 手持ちに戻っていった！` });
+                                            // Handle this similar to Eject Button for now?
+                                            // Ideally, switch happens after damage.
+                                            // For automation we might need to handle this specially.
+                                            this.turnQueue.push({ type: 'forceSwitchAction', actorIdx: actorIdx });
+                                        }
+                                    }
+
+                                    // --- Post-Move Updates ---
+                                    this.lastMoveUsed = move; // For Copycat
+
+                                    // Outrage Loop Decrement
+                                    if (attacker.outrage) {
+                                        attacker.outrage.turns--;
+                                        if (attacker.outrage.turns <= 0) {
+                                            attacker.outrage = null;
+                                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 暴れすぎて こんらんした！` });
+                                            // Apply confusion
+                                            if (!attacker.confusion) {
+                                                attacker.confusion = { turns: Math.floor(Math.random() * 4) + 1 };
+                                                this.turnQueue.push({ type: 'text', msg: `${attacker.name} は こんらんした！` });
+                                            }
+                                        }
                                     }
 
                                     // Recoil (Max HP based - Steel Beam)
@@ -2807,6 +3178,13 @@
                                         this.turnQueue.push({ type: 'text', msg: `${targetPName} の ${statNames[ch.stat]} が ${stageText}！` });
                                     });
                                 }
+
+                                // --- Burn Up Type Removal ---
+                                if (effect.meta && effect.meta.burnUp && totalDmg > 0) {
+                                    attacker.types = attacker.types.filter(t => t !== 'fire');
+                                    if (attacker.types.length === 0) attacker.types = ['none'];
+                                    this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 燃え尽きて ほのおタイプが なくなった！` });
+                                }
                             }
 
                             if (simState[targetIdx].currentHp <= 0) {
@@ -2819,7 +3197,7 @@
                             }
                         }
                     }
-                }); // End of turn processing loop
+                });
 
                 this.processNextAction();
             },
@@ -2846,6 +3224,7 @@
                     const active = targetP.team[targetP.activeIdx];
                     active.currentHp -= action.damage;
                     if (active.currentHp < 0) active.currentHp = 0;
+                    if (active.currentHp > active.stats.hp) active.currentHp = active.stats.hp;
 
                     // Update UI
                     this.updateHpDisplay();
@@ -2861,7 +3240,20 @@
                 }
                 else if (action.type === 'switch') {
                     const p = this.players[action.actorIdx];
+                    const oldMon = p.team[p.activeIdx];
+                    const newMon = p.team[action.newActiveIdx];
+
                     logBox.innerText += `${p.name} は ${action.oldName} を戻して ${action.newName} を繰り出した！\n`;
+
+                    // Baton Pass Transfer
+                    if (this.batonPassPending) {
+                        newMon.ranks = { ...oldMon.ranks };
+                        newMon.confusion = oldMon.confusion ? { ...oldMon.confusion } : null;
+                        newMon.substituteHP = oldMon.substituteHP || 0;
+                        this.batonPassPending = false;
+                        logBox.innerText += `能力変化と状態が 引き継がれた！\n`;
+                    }
+
                     p.activeIdx = action.newActiveIdx;
                     this.updateHpDisplay();
                     logBox.scrollTop = logBox.scrollHeight;
@@ -2880,6 +3272,13 @@
                     logBox.innerText += `${map[action.weather]}！\n`;
                     logBox.scrollTop = logBox.scrollHeight;
                     wait(1000);
+                }
+                else if (action.type === 'forceSwitchAction') {
+                    // Triggered by switching moves (Volt Switch, etc.) or Eject Button
+                    this.currentPlayerIndex = action.actorIdx;
+                    if (action.isBatonPass) this.batonPassPending = true;
+                    this.showSwitchScreen(true);
+                    // processNextAction stops here because showSwitchScreen takes over
                 }
             },
 
@@ -3021,6 +3420,16 @@
                                 mon.currentHp = Math.min(mon.stats.hp, mon.currentHp + rec);
                                 endQueue.push({ type: 'damage', targetIdx: idx, damage: -rec, msg: `${mon.name} は たべのこしで 回復した！` });
                             }
+                            if (mon.item === 'くろいへどろ') {
+                                if (mon.types.includes('poison')) {
+                                    const rec = Math.floor(mon.stats.hp / 16) || 1;
+                                    mon.currentHp = Math.min(mon.stats.hp, mon.currentHp + rec);
+                                    endQueue.push({ type: 'damage', targetIdx: idx, damage: -rec, msg: `${mon.name} は くろいへどろで 回復した！` });
+                                } else {
+                                    const dmg = Math.floor(mon.stats.hp / 8) || 1;
+                                    endQueue.push({ type: 'damage', targetIdx: idx, damage: dmg, msg: `${mon.name} は くろいへどろで ダメージを受けた！` });
+                                }
+                            }
                         }
                     });
 
@@ -3077,6 +3486,33 @@
                     else { power = 50; moveType = 'normal'; }
                 }
 
+                // --- Stored Power (アシストパワー) ---
+                if (move.name === 'アシストパワー' || move.name === 'Stored Power' || (effect && effect.meta && effect.meta.storedPower)) {
+                    let boosts = 0;
+                    if (attacker.ranks) {
+                        const stats = ['atk', 'def', 'spa', 'spd', 'spe', 'eva', 'acc'];
+                        stats.forEach(s => {
+                            if (attacker.ranks[s] > 0) boosts += attacker.ranks[s];
+                        });
+                    }
+                    power = 20 + (20 * boosts);
+                }
+
+                // --- Screens Damage Reduction (Reflect / Light Screen) ---
+                let screenMod = 1.0;
+                if (defender.screens) {
+                    if (move.category === 'physical' && defender.screens.reflect > 0) {
+                        screenMod = 0.5;
+                        // In critical hits, screens are ignored? Typically yes, unless current gen changed.
+                        // We will apply it at final modifier stage or base damage?
+                        // Screens usually apply to raw damage or base power?
+                        // Actually it's a damage modifier. We'll apply it later.
+                    }
+                    if (move.category === 'special' && defender.screens.lightScreen > 0) {
+                        screenMod = 0.5;
+                    }
+                }
+
                 // --- Variable Power Check ---
                 if (effect && effect.variablePower) {
                     const vp = effect.variablePower;
@@ -3121,7 +3557,14 @@
 
                 // Critical Hit ignores negative Attack stages and positive Defense stages
                 const critRate = (effect && effect.meta && effect.meta.critRate) ? 2 : 0;
-                const critChance = (critRate >= 2) ? 0.5 : 0.04;
+                let critStage = (critRate >= 2) ? 2 : 0;
+                if (attacker.item === 'ピントレンズ') critStage += 1;
+
+                let critChance = 0.04;
+                if (critStage === 1) critChance = 0.125;
+                else if (critStage === 2) critChance = 0.5;
+                else if (critStage >= 3) critChance = 1.0;
+
                 const isCrit = Math.random() < critChance;
 
                 let effectiveAtkRank = atkRank;
@@ -3392,6 +3835,20 @@
                         txt.style.opacity = active.currentHp === 0 ? '0.4' : '1';
                     }
                 });
+
+                // --- Input Screen sync ---
+                const p = this.players[this.currentPlayerIndex];
+                if (p && document.getElementById('screen-input').classList.contains('active')) {
+                    const active = p.team[p.activeIdx];
+                    const bar = document.getElementById('input-hp-bar');
+                    const txt = document.getElementById('input-hp-text');
+                    const pct = (active.currentHp / active.stats.hp) * 100;
+                    if (bar) {
+                        bar.style.width = pct + '%';
+                        this.setHpColor(bar, pct);
+                    }
+                    if (txt) txt.innerText = `${active.currentHp}/${active.stats.hp}`;
+                }
 
                 // Weather Display (Update a generic element or log)
                 const logBox = document.getElementById('battle-log');
@@ -3666,8 +4123,10 @@
                     'いのちのたま', 'こだわりハチマキ', 'こだわりメガネ', 'こだわりスカーフ', 'パンチグローブ',
                     'とつげきチョッキ', 'おんみつマント', 'クリアチャーム', 'あつぞこブーツ',
                     'きあいのタスキ', 'じゃくてんほけん', 'だっしゅつボタン', 'いかさまダイス', 'ブーストエナジー',
-                    'ものまねハーブ',
-                    'オボンのみ', 'イアのみ', 'ウイのみ', 'フィラのみ', 'マゴのみ', 'バンジのみ', 'オレンのみ',
+                    'ものまねハーブ', 'くろいへどろ', 'しんかのきせき', 'ゴツゴツメット',
+                    '広角レンズ', 'ピントレンズ', 'するどいツメ', 'おうじゃのしるし',
+                    'メタルパウダー', 'でんきだま', 'あかいいと',
+                    'たべのこし', 'オボンのみ', 'イアのみ', 'ウイのみ', 'フィラのみ', 'マゴのみ', 'バンジのみ', 'オレンのみ',
                     'カゴのみ', 'クラボのみ', 'モモンのみ', 'チーゴのみ', 'ナナシのみ', 'キーのみ', 'ラムのみ',
                     'ヨプのみ', 'シュカのみ', 'バコウのみ', 'ウタンのみ', 'タンガのみ', 'リリバのみ', 'カシブのみ',
                     'ハバンのみ', 'ナモのみ', 'ソクノのみ', 'オッカのみ', 'イトケのみ', 'ロゼルのみ', 'ヤチェのみ', 'ビアーのみ',
