@@ -907,7 +907,14 @@
                     else if (s.match(/lowers/i) || s.includes('下がる')) stage = -1;
 
                     if (stage !== 0) {
-                        res.statChanges.push({ target, stat: statKey, stage });
+                        let chance = 100;
+                        if (s.match(/(\d+)% chance/) || s.match(/(\d+)%の確率/)) {
+                            const m = s.match(/(\d+)%/);
+                            if (m) chance = parseInt(m[1]);
+                        } else if (s.includes('たまに')) {
+                            chance = 10;
+                        }
+                        res.statChanges.push({ target, stat: statKey, stage, chance });
                     }
                 };
                 checkStat(str);
@@ -917,7 +924,7 @@
                 }
 
                 // 5. High Crit
-                if (str.match(/high critical/i) || str.includes('急所')) { res.meta.critRate = 2; }
+                if (str.match(/high critical/i) || str.includes('急所に当たりやすい')) { res.meta.critRate = 1; }
 
                 // 6. Never Miss
                 if (str.match(/never miss/i) || str.includes('必中')) { res.flags.alwaysHit = true; }
@@ -2097,6 +2104,13 @@
                             }
                         }
 
+                        // Flinch check
+                        if (attacker.flinched) {
+                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は ひるんで動けない！` });
+                            attacker.flinched = false;
+                            return;
+                        }
+
                         // Sleep check
                         if (attacker.status && attacker.status.condition === 'slp') {
                             attacker.status.turns--;
@@ -2257,12 +2271,26 @@
                             }
                         }
 
+                        // --- Sketch (スケッチ) ---
+                        if (move.name === 'スケッチ' || move.name === 'Sketch') {
+                            if (this.lastMoveUsed && this.lastMoveUsed.name !== 'スケッチ' && this.lastMoveUsed.name !== 'Sketch') {
+                                this.turnQueue.push({ type: 'text', msg: `${attacker.name} は ${this.lastMoveUsed.name} を スケッチした！` });
+                                // Replace move in attacker's moveset
+                                attacker.moves[act.moveIdx] = { ...this.lastMoveUsed, pp: this.lastMoveUsed.maxPp || 10, maxPp: this.lastMoveUsed.maxPp || 10 };
+                                return;
+                            } else {
+                                this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
+                                return;
+                            }
+                        }
+
                         // --- Baton Pass (バトンタッチ) ---
                         if (move.name === 'バトンタッチ' || move.name === 'Baton Pass') {
                             const p = this.players[actorIdx];
                             const bench = p.team.map((m, i) => ({ m, i })).filter(x => x.i !== p.activeIdx && x.m.currentHp > 0);
                             if (bench.length > 0) {
                                 this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 手持ちに戻っていった！` });
+                                // Set batonPassPending immediately before switch
                                 this.turnQueue.push({ type: 'forceSwitchAction', actorIdx: actorIdx, isBatonPass: true });
                             } else {
                                 this.turnQueue.push({ type: 'text', msg: 'しかし 控えがいなかった！' });
@@ -3005,6 +3033,20 @@
                                 this.turnQueue.push({ type: 'text', msg: `${attacker.name} と ${defender.name} の 持ち物を 交換した！` });
                             }
 
+                            // 7. Flinching
+                            if (simState[targetIdx].currentHp > 0 && effect.meta && effect.meta.flinchChance) {
+                                // Flinch only works if target hasn't acted yet
+                                const targetAction = targetP.action;
+                                // Simplified: If target is further in order, they haven't acted.
+                                const currentActorOrderIdx = order.indexOf(actorIdx);
+                                const targetOrderIdx = order.indexOf(targetIdx);
+                                if (targetOrderIdx > currentActorOrderIdx) {
+                                    if (Math.random() * 100 < effect.meta.flinchChance) {
+                                        defender.flinched = true;
+                                    }
+                                }
+                            }
+
                             // Original Status/Recoil/Stat logic
                             if (simState[targetIdx].currentHp > 0 || (effect.meta && effect.meta.statSelf)) {
                                 if (effect.meta) {
@@ -3161,6 +3203,9 @@
 
                                 if (effect.statChanges) {
                                     effect.statChanges.forEach(ch => {
+                                        // Chance check for secondary effects
+                                        if (ch.chance && Math.random() * 100 > ch.chance) return;
+
                                         // Clear Amulet Check
                                         if (ch.target !== 'self' && ch.stage < 0 && defender.item === 'クリアチャーム') {
                                             this.turnQueue.push({ type: 'text', msg: `${defender.name} の クリアチャームが 能力ダウンを防いだ！` });
@@ -3250,8 +3295,18 @@
                         newMon.ranks = { ...oldMon.ranks };
                         newMon.confusion = oldMon.confusion ? { ...oldMon.confusion } : null;
                         newMon.substituteHP = oldMon.substituteHP || 0;
+                        newMon.trapped = oldMon.trapped ? { ...oldMon.trapped } : null;
                         this.batonPassPending = false;
                         logBox.innerText += `能力変化と状態が 引き継がれた！\n`;
+                    } else {
+                        // Regular switch resets a few things (though some are handled in resolveTurn switch block)
+                        newMon.ranks = newMon.ranks || { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
+                        newMon.confusion = null;
+                        newMon.substituteHP = 0;
+                        newMon.trapped = null;
+                        newMon.outrage = null;
+                        newMon.recharge = false;
+                        newMon.chargingMove = null;
                     }
 
                     p.activeIdx = action.newActiveIdx;
@@ -3556,8 +3611,7 @@
                 const defRank = isPhys ? defender.ranks.def : defender.ranks.spd;
 
                 // Critical Hit ignores negative Attack stages and positive Defense stages
-                const critRate = (effect && effect.meta && effect.meta.critRate) ? 2 : 0;
-                let critStage = (critRate >= 2) ? 2 : 0;
+                let critStage = (effect && effect.meta && effect.meta.critRate) ? effect.meta.critRate : 0;
                 if (attacker.item === 'ピントレンズ') critStage += 1;
 
                 let critChance = 0.04;
