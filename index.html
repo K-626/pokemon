@@ -717,12 +717,12 @@
                     if (protects.includes(name)) {
                         m.priority = 4;
                         m.effect.meta.protect = true;
-                        if (name === 'トーチカ') m.effect.meta.protectEffect = 'psn';
-                        if (name === 'ニードルガード') m.effect.meta.protectEffect = 'dmg_1/8';
-                        if (name === 'キングシールド') m.effect.meta.protectEffect = 'atk_-1';
-                        if (name === 'ブロッキング') m.effect.meta.protectEffect = 'def_-2';
-                        if (name === 'スレッドトラップ') m.effect.meta.protectEffect = 'spe_-1';
-                        if (name === 'かえんのまもり') m.effect.meta.protectEffect = 'brn';
+                        if (name === 'トーチカ') { m.effect.meta.protect = true; m.effect.meta.protectEffect = 'psn'; }
+                        if (name === 'ニードルガード') { m.effect.meta.protect = true; m.effect.meta.protectEffect = 'dmg_1/8'; }
+                        if (name === 'キングシールド') { m.effect.meta.protect = true; m.effect.meta.protectEffect = 'atk_-1'; }
+                        if (name === 'ブロッキング') { m.effect.meta.protect = true; m.effect.meta.protectEffect = 'def_-2'; }
+                        if (name === 'スレッドトラップ' || name === 'シルクトラップ') { m.effect.meta.protect = true; m.effect.meta.protectEffect = 'spe_-1'; }
+                        if (name === 'かえんのまもり') { m.effect.meta.protect = true; m.effect.meta.protectEffect = 'brn'; }
                     }
 
                     // Priority Moves (Requested)
@@ -789,6 +789,85 @@
                         m.effect.meta.trapName = name;
                     }
 
+                    // --- Secondary Status Effects (Manual List) ---
+                    // Poison (30% is standard for many, but some vary. Using standard 30% for 'sting' type moves unless specified)
+                    const psn30 = ['どくばり', 'ヘドロこうげき', 'ヘドロばくだん', 'ポイズンテール', 'クロスポイズン', 'ダストシュート', 'ヘドロウェーブ', 'ベノムショック'];
+                    const psn10 = ['スモッグ'];
+                    const psn50 = ['ダストシュート']; // Actually 30 in Gen 6+, wait. smog is 40. keeping simple for now or strictly following gen 9.
+                    // Smog is 40, Sludge 30, Sludge Bomb 30, Poison Sting 30, Poison Tail 10/30? (High crit). Poison Jab 30.
+                    // Let's use a mapping for accuracy.
+
+                    const statusMovesMap = {
+                        // Poison
+                        'どくばり': { status: 'psn', chance: 30 },
+                        'ヘドロこうげき': { status: 'psn', chance: 30 },
+                        'ヘドロばくだん': { status: 'psn', chance: 30 },
+                        'ポイズンテール': { status: 'psn', chance: 10 },
+                        'クロスポイズン': { status: 'psn', chance: 10 },
+                        'ダストシュート': { status: 'psn', chance: 30 },
+                        'ヘドロウェーブ': { status: 'psn', chance: 10 },
+                        'どくづき': { status: 'psn', chance: 30 },
+                        'スモッグ': { status: 'psn', chance: 40 },
+                        'シェルアームズ': { status: 'psn', chance: 20 },
+
+                        // Paralysis
+                        'Thunder Shock': { status: 'par', chance: 10 },
+                        'でんきショック': { status: 'par', chance: 10 },
+                        '10まんボルト': { status: 'par', chance: 10 },
+                        'かみなり': { status: 'par', chance: 30 },
+                        'のしかかり': { status: 'par', chance: 30 },
+                        'りゅうのいぶき': { status: 'par', chance: 30 },
+                        'したでなめる': { status: 'par', chance: 30 },
+                        'スパーク': { status: 'par', chance: 30 },
+                        'ほうでん': { status: 'par', chance: 30 },
+                        'らいげき': { status: 'par', chance: 20 },
+                        'びりびりちくちく': { status: 'par', chance: 30 },
+                        'ほっぺすりすり': { status: 'par', chance: 100 },
+
+                        // Burn
+                        'かえんほうしゃ': { status: 'brn', chance: 10 },
+                        'だいもんじ': { status: 'brn', chance: 10 },
+                        'ねっぷう': { status: 'brn', chance: 10 },
+                        'ふんえん': { status: 'brn', chance: 30 },
+                        'ねっとう': { status: 'brn', chance: 30 },
+                        'かえんぐるま': { status: 'brn', chance: 10 },
+                        'ブレイイズキック': { status: 'brn', chance: 10 },
+                        'せいなるほのお': { status: 'brn', chance: 50 },
+                        '煉獄': { status: 'brn', chance: 100 }, // Rengoku (Inferno)
+                        'れんごく': { status: 'brn', chance: 100 },
+
+                        // Freeze
+                        'れいとうビーム': { status: 'frz', chance: 10 },
+                        'ふぶき': { status: 'frz', chance: 10 },
+                        'れいとうパンチ': { status: 'frz', chance: 10 },
+                        'こなゆき': { status: 'frz', chance: 10 },
+                        'フリーズドライ': { status: 'frz', chance: 10 },
+
+                        // Sleep
+                        'うたう': { status: 'slp', chance: 100 }, // Status move, covered elsewhere but good to have
+                        'いにしえのうた': { status: 'slp', chance: 10 },
+
+                        // Confusion
+                        'ねんりき': { confuse: true, chance: 10 },
+                        'サイケこうせん': { confuse: true, chance: 10 },
+                        'シグナルビーム': { confuse: true, chance: 10 },
+                        'みずのはどう': { confuse: true, chance: 20 },
+                        'ばくれつパンチ': { confuse: true, chance: 100 },
+                        'ぼうふう': { confuse: true, chance: 30 }
+                    };
+
+                    if (statusMovesMap[name]) {
+                        const s = statusMovesMap[name];
+                        if (s.status) {
+                            m.effect.meta.status = s.status;
+                            m.effect.meta.statusChance = s.chance;
+                        }
+                        if (s.confuse) {
+                            m.effect.meta.confuse = true;
+                            m.effect.meta.confuseChance = s.chance;
+                        }
+                    }
+
                     // --- Field Moves ---
                     if (['エレキフィールド', 'グラスフィールド', 'ミストフィールド', 'サイコフィールド'].includes(name)) {
                         const map = { 'エレキフィールド': 'electric', 'グラスフィールド': 'grassy', 'ミストフィールド': 'misty', 'サイコフィールド': 'psychic' };
@@ -804,6 +883,7 @@
                     if (name === 'もえつきる') m.effect.meta.burnUp = true;
                     if (name === 'ほろびのうた' || name === 'Perish Song') { m.effect.meta.perishMove = true; m.target = 'all'; m.category = 'status'; }
                     if (name === 'ねこのて' || name === 'Assist') { m.effect.meta.assist = true; m.target = 'self'; m.category = 'status'; }
+                    if (name === 'みがわり' || name === 'Substitute') { m.effect.meta.substitute = true; m.target = 'self'; m.category = 'status'; }
 
                     // Status moves should usually have 100% status chance
                     if (m.category === 'status' && m.effect.meta.status) {
@@ -1199,49 +1279,7 @@
                             </div>
                             <div class="stat-row">
                                 <label>持ち物</label>
-                                <select id="${prefix}_item">
-                                    <option value="">なし</option>
-                                    <option value="きあいのタスキ">きあいのタスキ(満タン耐え)</option>
-                                    <option value="いのちのたま">いのちのたま(威力1.3倍/反動)</option>
-                                    <option value="たべのこし">たべのこし(毎T回復)</option>
-                                    <option value="ゴツゴツメット">ゴツゴツメット(接触ダメ)</option>
-                                    <option value="こだわりハチマキ">こだわりハチマキ(A1.5倍/技固定)</option>
-                                    <option value="こだわりメガネ">こだわりメガネ(C1.5倍/技固定)</option>
-                                    <option value="こだわりスカーフ">こだわりスカーフ(S1.5倍/技固定)</option>
-                                    <option value="とつげきチョッキ">とつげきチョッキ(D1.5倍/変化技不可)</option>
-                                    <option value="ブーストエナジー">ブーストエナジー(能力上昇)</option>
-                                    <option value="クリアチャーム">クリアチャーム(能力ダウン無効)</option>
-                                    <option value="おんみつマント">おんみつマント(追加効果無効)</option>
-                                    <option value="パンチグローブ">パンチグローブ(パンチ強化/非接触)</option>
-                                    <option value="いかさまダイス">いかさまダイス(連続技安定)</option>
-                                    <option value="じゃくてんほけん">じゃくてんほけん(弱点でAC大幅上昇)</option>
-                                    <option value="だっしゅつボタン">だっしゅつボタン(被弾時交代)</option>
-                                    <option value="レッドカード">レッドカード(被弾時相手交代)</option>
-                                    <option value="ラムのみ">ラムのみ(状態異常回復)</option>
-                                    <option value="オボンのみ">オボンのみ(HP回復)</option>
-                                    <option value="カゴのみ">カゴのみ(眠り回復)</option>
-                                    <option value="リンドのみ">リンドのみ(草半減)</option>
-                                    <option value="オッカのみ">オッカのみ(炎半減)</option>
-                                    <option value="イトケのみ">イトケのみ(水半減)</option>
-                                    <option value="ソクノのみ">ソクノのみ(電半減)</option>
-                                    <option value="ヤチェのみ">ヤチェのみ(氷半減)</option>
-                                    <option value="ヨプのみ">ヨプのみ(闘半減)</option>
-                                    <option value="ビアーのみ">ビアーのみ(毒半減)</option>
-                                    <option value="シュカのみ">シュカのみ(地半減)</option>
-                                    <option value="バコウのみ">バコウのみ(飛半減)</option>
-                                    <option value="ウタンのみ">ウタンのみ(超半減)</option>
-                                    <option value="タンガのみ">タンガのみ(虫半減)</option>
-                                    <option value="ハバンのみ">ハバンのみ(龍半減)</option>
-                                    <option value="カシブのみ">カシブのみ(霊半減)</option>
-                                    <option value="ロゼルのみ">ロゼルのみ(妖半減)</option>
-                                    <option value="アッキのみ">アッキのみ(物理被弾でB↑)</option>
-                                    <option value="タラプのみ">タラプのみ(特殊被弾でD↑)</option>
-                                    <option value="しろいハーブ">しろいハーブ(ダウン解除)</option>
-                                    <option value="メンタルハーブ">メンタルハーブ(メロメロ等解除)</option>
-                                    <option value="パワフルハーブ">パワフルハーブ(溜めなし)</option>
-                                    <option value="ひかりのねんど">ひかりのねんど(壁延長)</option>
-                                    <option value="あつぞこブーツ">あつぞこブーツ(罠無効)</option>
-                                </select>
+                                <input type="text" id="${prefix}_item" list="item-list" placeholder="道具名を入力" value="">
                             </div>
                             <div class="stat-row">
                                 <strong>種 / 個 / 努 / 実</strong>
@@ -2066,6 +2104,14 @@
                 ];
                 let simActiveIdx = [p1.activeIdx, p2.activeIdx];
 
+                // Reset per-turn flags
+                p1.team[p1.activeIdx].isProtected = false;
+                p1.team[p1.activeIdx].currentProtectEffect = null;
+                p1.team[p1.activeIdx].flinched = false;
+                p2.team[p2.activeIdx].isProtected = false;
+                p2.team[p2.activeIdx].currentProtectEffect = null;
+                p2.team[p2.activeIdx].flinched = false;
+
                 order.forEach(actorIdx => {
                     const targetIdx = 1 - actorIdx;
                     const actorP = this.players[actorIdx];
@@ -2089,6 +2135,35 @@
                         this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 反動で 動けない！` });
                         attacker.recharge = false; // Reset for next turn
                         return; // Skip action
+                    }
+
+                    // --- Taunt check ---
+                    if (attacker.tauntTurns > 0 && act.type === 'move') {
+                        const move = attacker.moves[act.moveIdx];
+                        if (move.category === 'status') {
+                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は ちょうはつされて 変化技が出せない！` });
+                            return;
+                        }
+                    }
+
+                    // --- Encore check (Action Override) ---
+                    if (attacker.encore && attacker.encore.turns > 0 && act.type === 'move') {
+                        const mIdx = attacker.moves.findIndex(m => m.name === attacker.encore.moveName);
+                        if (mIdx !== -1) {
+                            act = { ...act, moveIdx: mIdx };
+                        } else {
+                            // If move is gone (Sketch?), clear encore
+                            attacker.encore = null;
+                        }
+                    }
+
+                    // --- Disable check ---
+                    if (attacker.disable && attacker.disable.turns > 0 && act.type === 'move') {
+                        const move = attacker.moves[act.moveIdx];
+                        if (move.name === attacker.disable.moveName) {
+                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は かなしばりで 技が出せない！` });
+                            return;
+                        }
                     }
 
                     // Paralysis Check
@@ -2369,6 +2444,69 @@
                             return; // Ends turn as it is a status move with only this effect
                         }
 
+                        // --- Disable (かなしばり) ---
+                        if (move.name === 'かなしばり' || move.name === 'Disable') {
+                            if (defender.lastMoveUsed && !defender.disable) {
+                                defender.disable = { moveName: defender.lastMoveUsed.name, turns: 4 };
+                                this.turnQueue.push({ type: 'text', msg: `${defender.name} の ${defender.lastMoveUsed.name} を 封じた！` });
+                            } else {
+                                this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
+                            }
+                            return;
+                        }
+
+                        // --- Encore (アンコール) ---
+                        if (move.name === 'アンコール' || move.name === 'Encore') {
+                            if (defender.lastMoveUsed && !defender.encore) {
+                                defender.encore = { moveName: defender.lastMoveUsed.name, turns: 3 };
+                                this.turnQueue.push({ type: 'text', msg: `${defender.name} は アンコールされた！` });
+                            } else {
+                                this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
+                            }
+                            return;
+                        }
+
+                        // --- Taunt (ちょうはつ) ---
+                        if (move.name === 'ちょうはつ' || move.name === 'Taunt') {
+                            defender.tauntTurns = 3;
+                            this.turnQueue.push({ type: 'text', msg: `${defender.name} は ちょうはつされた！` });
+                            return;
+                        }
+
+                        // --- Charge (じゅうでん) ---
+                        if (move.name === 'じゅうでん' || move.name === 'Charge') {
+                            attacker.ranks.spd = Math.min(6, (attacker.ranks.spd || 0) + 1);
+                            attacker.isCharged = true;
+                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は じゅうでんした！ 特防が 上がった！` });
+                            return;
+                        }
+
+                        // --- Last Resort (とっておき) ---
+                        if (move.name === 'とっておき' || move.name === 'Last Resort') {
+                            // Check if all other moves have been used
+                            const otherMoves = attacker.moves.filter(m => m.name !== 'とっておき' && m.name !== 'Last Resort' && m.name !== '-');
+                            const allUsed = otherMoves.length > 0 && otherMoves.every(m => m.used);
+                            if (!allUsed) {
+                                this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
+                                return;
+                            }
+                        }
+
+                        // --- Poltergeist (ポルターガイスト) ---
+                        if (move.name === 'ポルターガイスト' || move.name === 'Poltergeist') {
+                            if (!defender.item || defender.item === 'none') {
+                                this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
+                                return;
+                            } else {
+                                this.turnQueue.push({ type: 'text', msg: `${defender.name} は ${defender.item} を 操っている！` });
+                            }
+                        }
+
+                        // --- Final Gambit (いのちがけ) ---
+                        if (move.name === 'いのちがけ' || move.name === 'Final Gambit') {
+                            // Handled in calcDamage mostly, but we need to ensure self-faint
+                        }
+
                         // Psychic Terrain Block Check (Priority > 0 targeting enemy)
                         const moveData = moveDB[move.name] || move;
                         const pri = getPriority(actorP); // includes Grassy Glide check
@@ -2477,6 +2615,23 @@
                             if (Math.random() < successRate) {
                                 attacker.isProtected = true;
                                 attacker.protectCount++;
+
+                                // Set contact effect based on move name
+                                attacker.currentProtectEffect = null;
+                                if (move.name === 'トーチカ' || move.name === 'Baneful Bunker') {
+                                    attacker.currentProtectEffect = 'psn';
+                                } else if (move.name === 'ブロッキング' || move.name === 'Obstruct') {
+                                    attacker.currentProtectEffect = 'def_-2';
+                                } else if (move.name === 'シルクトラップ' || move.name === 'Silk Trap') {
+                                    attacker.currentProtectEffect = 'spe_-1';
+                                } else if (move.name === 'キングシールド' || move.name === "King's Shield") {
+                                    attacker.currentProtectEffect = 'atk_-1';
+                                } else if (move.name === 'ニードルガード' || move.name === 'Spiky Shield') {
+                                    attacker.currentProtectEffect = 'dmg_1/8';
+                                } else if (move.name === 'かえんのまもり' || move.name === 'Burning Bulwark') {
+                                    attacker.currentProtectEffect = 'brn';
+                                }
+
                                 this.turnQueue.push({ type: 'text', msg: `${attacker.name} は まもりに入った！` });
                                 return; // Protection move ends here
                             } else {
@@ -2615,8 +2770,8 @@
                                         } else {
                                             simState[actorIdx].currentHp -= cost;
                                             attacker.currentHp = simState[actorIdx].currentHp;
-                                            attacker.substituteHP = cost + 1;
-                                            this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: cost, msg: `${attacker.name} は 身代わりを作った！` });
+                                            attacker.substituteHP = cost;
+                                            this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: cost, msg: `${attacker.name} は 身代わりを はった！` });
                                         }
                                     }
                                     // --- Hazard Execution ---
@@ -2714,10 +2869,10 @@
                                     const diffAttacker = avg - simState[actorIdx].currentHp;
                                     const diffDefender = avg - simState[targetIdx].currentHp;
 
-                                    simState[actorIdx].currentHp = avg;
-                                    attacker.currentHp = avg;
-                                    simState[targetIdx].currentHp = avg;
-                                    defender.currentHp = avg;
+                                    simState[actorIdx].currentHp = Math.min(avg, attacker.stats.hp);
+                                    attacker.currentHp = Math.min(avg, attacker.stats.hp);
+                                    simState[targetIdx].currentHp = Math.min(avg, defender.stats.hp);
+                                    defender.currentHp = Math.min(avg, defender.stats.hp);
 
                                     this.turnQueue.push({ type: 'text', msg: `お互いの体力を 分かち合った！` });
                                     this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: -diffAttacker, msg: '' });
@@ -2861,9 +3016,26 @@
                                 }
                                 dmg = potentialDmg;
 
+                                // --- Substitute Block ---
+                                if (defender.substituteHP > 0 && move.category !== 'status') {
+                                    if (dmg > defender.substituteHP) {
+                                        // Substitute breaks, Pokemon takes NO damage (per user request)
+                                        totalDmg += defender.substituteHP;
+                                        defender.substituteHP = 0;
+                                        this.turnQueue.push({ type: 'text', msg: '身代わりが 壊れた！' });
+                                        dmg = 0;
+                                    } else {
+                                        // Substitute absorbs damage (strictly remains if not exceeded)
+                                        defender.substituteHP -= dmg;
+                                        this.turnQueue.push({ type: 'text', msg: '身代わりが ダメージを 受けた！' });
+                                        totalDmg += dmg;
+                                        dmg = 0;
+                                    }
+                                }
+
                                 simState[targetIdx].currentHp -= dmg;
                                 if (simState[targetIdx].currentHp < 0) simState[targetIdx].currentHp = 0;
-                                totalDmg += dmg;
+                                if (simState[targetIdx].currentHp > defender.stats.hp) simState[targetIdx].currentHp = defender.stats.hp;
 
                                 if (move.category !== 'status') {
                                     this.turnQueue.push({
@@ -3169,6 +3341,14 @@
 
                                     // --- Post-Move Updates ---
                                     this.lastMoveUsed = move; // For Copycat
+                                    attacker.lastMoveUsed = move; // For Disable/Encore
+                                    move.used = true; // For Last Resort
+
+                                    // Final Gambit Self-Faint
+                                    if (move.name === 'いのちがけ' || move.name === 'Final Gambit') {
+                                        simState[actorIdx].currentHp = 0;
+                                        this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: attacker.stats.hp, msg: `${attacker.name} は 全力を出し切った！` });
+                                    }
 
                                     // Outrage Loop Decrement
                                     if (attacker.outrage) {
@@ -3310,6 +3490,9 @@
                     }
 
                     p.activeIdx = action.newActiveIdx;
+                    // Reset move usage tracking for Last Resort
+                    p.team[p.activeIdx].moves.forEach(m => m.used = false);
+
                     this.updateHpDisplay();
                     logBox.scrollTop = logBox.scrollHeight;
                     wait(1500);
@@ -3425,6 +3608,31 @@
                             if (mon.trapped.turns <= 0) {
                                 endQueue.push({ type: 'text', msg: `${mon.name} の ${tName} が 解けた！` });
                                 mon.trapped = null;
+                            }
+                        }
+                    });
+
+                    // Volatile conditions decrement
+                    [p1, p2].forEach((p, idx) => {
+                        const mon = p.team[p.activeIdx];
+                        if (mon.currentHp > 0) {
+                            if (mon.tauntTurns > 0) {
+                                mon.tauntTurns--;
+                                if (mon.tauntTurns <= 0) endQueue.push({ type: 'text', msg: `${mon.name} の ちょうはつが 解けた！` });
+                            }
+                            if (mon.disable) {
+                                mon.disable.turns--;
+                                if (mon.disable.turns <= 0) {
+                                    mon.disable = null;
+                                    endQueue.push({ type: 'text', msg: `${mon.name} の かなしばりが とけた！` });
+                                }
+                            }
+                            if (mon.encore) {
+                                mon.encore.turns--;
+                                if (mon.encore.turns <= 0) {
+                                    mon.encore = null;
+                                    endQueue.push({ type: 'text', msg: `${mon.name} の アンコールが とけた！` });
+                                }
                             }
                         }
                     });
@@ -3600,6 +3808,17 @@
                 }
 
                 if (power <= 0) return { damage: 0, superEffective: 1 };
+
+                // --- Final Gambit (いのちがけ) ---
+                if (move.name === 'いのちがけ' || move.name === 'Final Gambit') {
+                    return { damage: attacker.currentHp, superEffective: 1 };
+                }
+
+                // --- Charge Boost ---
+                if (attacker.isCharged && moveType === 'electric') {
+                    power *= 2;
+                    attacker.isCharged = false; // Resolved in calcDamage
+                }
 
                 // 1. Determine Stats (A and D)
                 const isPhys = move.category === 'physical';
