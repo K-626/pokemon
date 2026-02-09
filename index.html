@@ -4,6 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <title>Local Pokemon Battle Sim (Gen 9)</title>
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -326,6 +329,9 @@
                 <label style="font-weight: bold; cursor: pointer;">
                     <input type="radio" name="gameMode" value="cpu" onchange="app.setGameMode('cpu')"> プレイヤー vs CPU
                 </label>
+                <label style="font-weight: bold; cursor: pointer; margin-left: 20px;">
+                    <input type="radio" name="gameMode" value="online" onchange="app.setGameMode('online')"> オンライン対戦 (β)
+                </label>
             </div>
 
             <!-- 追加: CSVアップロード UI とステータス -->
@@ -351,7 +357,48 @@
                     onclick="app.fetchDataFromUrl()">GitHubから最新データを読み込む</button>
             </p>
 
-            <button class="btn" onclick="app.startSetup(0)">Player 1 セットアップ開始</button>
+            <button class="btn" id="btn-main-action" onclick="app.handleMainAction()">Player 1 セットアップ開始</button>
+            <button class="btn btn-blue" style="margin-top:10px;"
+                onclick="app.showScreen('screen-lobby')">オンライン対戦ロビーへ移動</button>
+        </div>
+
+        <!-- Lobby Screen (Online) -->
+        <div id="screen-lobby" class="screen">
+            <h2>オンライン対戦ロビー</h2>
+            <div style="text-align:center; max-width:600px; margin:auto;">
+                <div class="input-group">
+                    <label>プレイヤー名</label>
+                    <input type="text" id="lobby-player-name" placeholder="名前を入力してください">
+                </div>
+
+                <div style="display:flex; gap:20px; margin-top:20px;">
+                    <!-- Host -->
+                    <div style="flex:1; border:1px solid #ddd; padding:15px; border-radius:8px; background:#fff;">
+                        <h3>ルームを作成 (Host)</h3>
+                        <p style="font-size:12px; color:#666;">あなたが部屋を作り、相手を待ちます。</p>
+                        <button class="btn btn-blue" onclick="app.online.createRoom()">ルーム作成</button>
+                        <div id="lobby-host-info" style="display:none; margin-top:15px;">
+                            <p>ルームID:</p>
+                            <p id="lobby-room-id-display"
+                                style="font-weight:bold; font-size:24px; color:#d32f2f; user-select:all; border:1px dashed #ccc; padding:5px; background:#f9f9f9;">
+                            </p>
+                            <p id="lobby-status-host" style="color:#2E7D32; font-weight:bold;">待機中...</p>
+                        </div>
+                    </div>
+                    <!-- Guest -->
+                    <div style="flex:1; border:1px solid #ddd; padding:15px; border-radius:8px; background:#fff;">
+                        <h3>ルームに参加 (Guest)</h3>
+                        <p style="font-size:12px; color:#666;">相手から受け取ったIDを入力します。</p>
+                        <input type="text" id="lobby-room-id-input" placeholder="ルームID"
+                            style="text-align:center; font-size:16px;">
+                        <button class="btn" onclick="app.online.joinRoom()">参加する</button>
+                        <p id="lobby-status-guest" style="color:#2E7D32; font-weight:bold; margin-top:10px;"></p>
+                    </div>
+                </div>
+
+                <button class="btn" style="background:#999; margin-top:30px;"
+                    onclick="app.showScreen('screen-start')">戻る</button>
+            </div>
         </div>
 
         <!-- Setup Screen -->
@@ -442,6 +489,24 @@
 
     <script>
         // ==========================================
+        //  Firebase設定エリア (★重要: ここを書き換えてください)
+        // ==========================================
+        //Of course, you should replace this with your own project configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyB--n0cKms7UuFCdOP4mkRpixHmAPzgH7E",
+            authDomain: "pokemon-e07ad.firebaseapp.com",
+            projectId: "pokemon-e07ad",
+            storageBucket: "pokemon-e07ad.firebasestorage.app",
+            messagingSenderId: "161040589484",
+            appId: "1:161040589484:web:fb889743b1a72c4e07f509",
+            measurementId: "G-CK2N7034Y2"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // ==========================================
         //  CSV設定エリア (ここを変更してください)
         // ==========================================
         const CSV_DATA_EMBEDDED = ``;
@@ -529,6 +594,8 @@
         let pokemonDB = {};
         let moveDB = {};
 
+
+
         // --- App State ---
         const app = {
             players: [],
@@ -543,10 +610,134 @@
             terrain: 'none',
             terrainTurns: 0,
             isSinglePlayer: false, // New flag for CPU mode
+            gameMode: 'pvp', // pvp, cpu, online
+            online: {
+                active: false,
+                roomId: null,
+                isHost: false,
+                myPlayerIdx: 0,
+                connected: false,
+                opponentName: 'Waiting...',
+
+                // Methods
+                createRoom: function () {
+                    const name = document.getElementById('lobby-player-name').value || 'HostPlayer';
+                    if (!db) { alert("Firebaseが設定されていません。コード内のfirebaseConfigを更新してください。"); return; }
+
+                    const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+                    this.roomId = roomId;
+                    this.isHost = true;
+                    this.myPlayerIdx = 0;
+                    this.active = true;
+
+                    // Room Init
+                    db.ref('rooms/' + roomId).set({
+                        status: 'waiting',
+                        created: Date.now(),
+                        host: name
+                    });
+
+                    // UI Update
+                    document.getElementById('lobby-host-info').style.display = 'block';
+                    document.getElementById('lobby-room-id-display').innerText = roomId;
+                    document.getElementById('lobby-status-host').innerText = "対戦相手を待っています...";
+
+                    // Listen
+                    db.ref('rooms/' + roomId + '/guest').on('value', snap => {
+                        if (snap.exists()) {
+                            this.connected = true;
+                            this.opponentName = snap.val();
+                            document.getElementById('lobby-status-host').innerText = `相手が参加しました: ${this.opponentName}`;
+                            setTimeout(() => {
+                                app.startSetup(0); // Host starts setup
+                            }, 1000);
+                        }
+                    });
+                },
+
+                joinRoom: function () {
+                    const name = document.getElementById('lobby-player-name').value || 'GuestPlayer';
+                    const roomId = document.getElementById('lobby-room-id-input').value.toUpperCase().trim();
+                    if (!roomId) return alert("IDを入力してください");
+                    if (!db) { alert("Firebaseが設定されていません。"); return; }
+
+                    db.ref('rooms/' + roomId).once('value', snap => {
+                        if (!snap.exists()) { alert("ルームが見つかりません"); return; }
+
+                        // Join
+                        this.roomId = roomId;
+                        this.isHost = false;
+                        this.myPlayerIdx = 1;
+                        this.active = true;
+
+                        db.ref('rooms/' + roomId).update({
+                            guest: name,
+                            status: 'setup'
+                        });
+
+                        document.getElementById('lobby-status-guest').innerText = "参加しました！ホストの開始を待っています...";
+                        this.connected = true;
+
+                        // Wait for status check or just immediate start?
+                        // Let's just start setup immediately for Guest too
+                        setTimeout(() => {
+                            app.startSetup(1); // Guest starts setup as Player 2 logic (UI mapped to P1 view?)
+                            // Wait, currently setup UI is generic. 
+                            // app.startSetup(idx) sets 'setupPlayerIndex'.
+                            // Guest needs to setup THEIR team.
+                            // In this sim, P1 and P2 are just slots.
+                            // Guest is P2. So startSetup(1).
+                            // BUT, for Guest, they should probably see themselves as "Player 1" on UI?
+                            // For simplicity, let's keep P1=Host, P2=Guest.
+                            // Guest sets up P2.
+                        }, 1000);
+                    });
+                }
+            },
             endOfTurnStage: 0, // 0: not started, 1: damage processed, 2: completed
+
+            setGameMode: function (mode) {
+                console.log('setGameMode called with:', mode);
+                this.gameMode = mode;
+                this.isSinglePlayer = (mode === 'cpu');
+                if (mode === 'online') {
+                    // Update Main Button Text
+                    const btn = document.getElementById('btn-main-action');
+                    if (btn) btn.innerText = "ロビーへ移動";
+                } else {
+                    const btn = document.getElementById('btn-main-action');
+                    if (btn) btn.innerText = "Player 1 セットアップ開始";
+                }
+            },
+
+            handleMainAction: function () {
+                // Safeguard: Sync from DOM incase state is stale
+                const modes = document.getElementsByName('gameMode');
+                modes.forEach(m => {
+                    if (m.checked && this.gameMode !== m.value) {
+                        console.log('Force syncing gameMode to:', m.value);
+                        this.setGameMode(m.value);
+                    }
+                });
+
+                console.log('handleMainAction called. Current gameMode:', this.gameMode);
+                if (this.gameMode === 'online') {
+                    this.showScreen('screen-lobby');
+                } else {
+                    this.startSetup(0);
+                }
+            },
 
             // init: safer with element existence checks
             init: function () {
+                console.log('app.init called');
+                // Sync Game Mode from UI (in case of browser cache/reload)
+                const modes = document.getElementsByName('gameMode');
+                modes.forEach(m => {
+                    console.log('Radio:', m.value, 'Checked:', m.checked);
+                    if (m.checked) this.setGameMode(m.value);
+                });
+
                 // Pre-load Logic
                 if (USE_CSV_SOURCE === "embed" && CSV_DATA_EMBEDDED.trim() !== "") {
                     this.parseCsv(CSV_DATA_EMBEDDED);
@@ -1334,6 +1525,55 @@
             },
 
             finishSetupStep: function () {
+                // Online Logic: Save to DB and Wait
+                if (this.gameMode === 'online') {
+                    this.savePlayerData(this.setupPlayerIndex); // Save to local variable first
+                    const pIdx = this.setupPlayerIndex;
+                    if (!db || !this.online.roomId) return;
+
+                    const roomRef = db.ref('rooms/' + this.online.roomId);
+                    // Send my player data
+                    roomRef.child('players/' + pIdx).set(this.players[pIdx]);
+                    roomRef.child('status').set('setup_done_' + pIdx); // Signal
+
+                    // Update UI
+                    this.showScreen('screen-lobby');
+                    const msg = (pIdx === 0) ? "チーム編成完了。相手を待っています..." : "チーム編成完了。ホストの開始を待っています...";
+                    document.getElementById('lobby-status-host').innerText = msg;
+                    document.getElementById('lobby-status-guest').innerText = msg;
+
+                    // Listeners for Progression
+                    if (this.online.isHost) {
+                        // Host waits for P1 (Guest)
+                        roomRef.child('players/1').on('value', snap => {
+                            if (snap.exists()) {
+                                // Both ready. Start Battle.
+                                // Allow a small delay or manual start? Auto-start for now.
+                                setTimeout(() => {
+                                    roomRef.child('status').set('battle');
+                                    this.initializeBattle();
+                                }, 1000);
+                            }
+                        });
+                    } else {
+                        // Guest waits for 'battle' status
+                        roomRef.child('status').on('value', snap => {
+                            if (snap.val() === 'battle') {
+                                // Download Host Data? initializeBattle will handle it if we setup listeners there.
+                                // Actually we need to make sure we have P0 data.
+                                roomRef.child('players/0').once('value', p0Snap => {
+                                    if (p0Snap.exists()) {
+                                        this.players[0] = p0Snap.val();
+                                        this.initializeBattle();
+                                    }
+                                });
+                            }
+                        });
+                    }
+                    return;
+                }
+
+                // Local Offline Logic
                 this.savePlayerData(this.setupPlayerIndex);
 
                 if (this.setupPlayerIndex === 0) {
@@ -1601,6 +1841,56 @@
             // --- Battle Flow ---
 
             initializeBattle: function () {
+                // Online Sync Check (Guest needs P0, Host needs P1)
+                if (this.gameMode === 'online') {
+                    if (!this.players[0] || !this.players[1]) {
+                        // Attempt fetch if missing?
+                        // For now assume logic before this ensured it.
+                    }
+
+                    // Setup Turn Listeners
+                    const roomRef = db.ref('rooms/' + this.online.roomId);
+
+                    if (this.online.isHost) {
+                        // Host: Listen for Actions
+                        this.online.actionsBuffer = {};
+                        roomRef.child('actions/' + this.turn).off(); // Clear old
+                        roomRef.child('actions/' + this.turn).on('child_added', snap => {
+                            const pIdx = parseInt(snap.key);
+                            const action = snap.val();
+                            this.online.actionsBuffer[pIdx] = action;
+
+                            // If we have both actions
+                            if (this.online.actionsBuffer[0] && this.online.actionsBuffer[1]) {
+                                this.players[0].action = this.online.actionsBuffer[0];
+                                this.players[1].action = this.online.actionsBuffer[1];
+                                roomRef.child('actions/' + this.turn).off(); // Stop listening for this turn
+                                this.resolveTurn();
+                            }
+                        });
+                    } else {
+                        // Guest: Listen for Turn Data (Main & End)
+                        roomRef.child('turns/' + this.turn + '/main').off();
+                        roomRef.child('turns/' + this.turn + '/main').on('value', snap => {
+                            if (snap.exists()) {
+                                const queue = snap.val();
+                                this.processRemoteTurn(queue, 'main');
+                            }
+                        });
+                        roomRef.child('turns/' + this.turn + '/end').off();
+                        roomRef.child('turns/' + this.turn + '/end').on('value', snap => {
+                            if (snap.exists()) {
+                                const queue = snap.val();
+                                // Also sync state
+                                roomRef.child('turns/' + this.turn + '/state').once('value', stateSnap => {
+                                    if (stateSnap.exists()) this.players = stateSnap.val();
+                                    this.processRemoteTurn(queue, 'end');
+                                });
+                            }
+                        });
+                    }
+                }
+
                 if (!this.players[0] || !this.players[1]) {
                     alert("エラー: プレイヤーデータが不足しています");
                     return;
@@ -2014,10 +2304,28 @@
 
             registerMove: function (moveIdx, switchIdx = null) {
                 const player = this.players[this.currentPlayerIndex];
+                let act = null;
                 if (moveIdx === -1 && switchIdx !== null) {
-                    player.action = { type: 'switch', switchIdx: switchIdx };
+                    act = { type: 'switch', switchIdx: switchIdx };
                 } else {
-                    player.action = { type: 'move', moveIdx: moveIdx };
+                    act = { type: 'move', moveIdx: moveIdx };
+                }
+                player.action = act;
+
+                // Online Intercept
+                if (this.gameMode === 'online') {
+                    // Only allow if it's my turn/player
+                    if (this.currentPlayerIndex !== this.online.myPlayerIdx) return;
+
+                    // Send to DB
+                    db.ref('rooms/' + this.online.roomId + '/actions/' + this.turn + '/' + this.online.myPlayerIdx).set(act);
+
+                    // UI Feedback
+                    const container = document.getElementById('move-buttons');
+                    if (container) container.innerHTML = '<p style="padding:20px; text-align:center;">相手の行動を待っています...</p>';
+                    document.querySelectorAll('.btn').forEach(b => b.disabled = true);
+
+                    return; // Stop local execution
                 }
 
                 if (this.currentPlayerIndex === 0) {
@@ -3424,6 +3732,16 @@
                     }
                 });
 
+                if (this.gameMode === 'online' && this.online.isHost) {
+                    // Upload Main Turn Queue
+                    db.ref('rooms/' + this.online.roomId + '/turns/' + this.turn + '/main').set(this.turnQueue);
+                }
+                this.processNextAction();
+            },
+
+            processRemoteTurn: function (queue, phase) {
+                this.turnQueue = queue || [];
+                // If phase is 'end', we might need to handle turn increment after
                 this.processNextAction();
             },
 
@@ -3624,7 +3942,7 @@
                                 mon.disable.turns--;
                                 if (mon.disable.turns <= 0) {
                                     mon.disable = null;
-                                    endQueue.push({ type: 'text', msg: `${mon.name} の かなしばりが とけた！` });
+                                    endQueue.push({ type: 'text', msg: `${mon.name} の かなしばりが 解けた！` });
                                 }
                             }
                             if (mon.encore) {
@@ -3695,43 +4013,97 @@
                             }
                         }
                     });
+                } // End of Stage 0
 
-                    if (endQueue.length > 0) {
-                        // Temporary merge to turnQueue to process them
-                        this.turnQueue = endQueue;
-                        this.processNextAction();
-                        return;
-                    }
+                // Add endQueue to main queue
+                endQueue.forEach(q => this.turnQueue.push(q));
+
+                if (this.gameMode === 'online' && this.online.isHost && endQueue.length > 0) {
+                    // Upload End Phase
+                    db.ref('rooms/' + this.online.roomId + '/turns/' + this.turn + '/end').set(endQueue);
+                    // Upload State
+                    db.ref('rooms/' + this.online.roomId + '/turns/' + this.turn + '/state').set(this.players);
                 }
 
-                this.endOfTurnStage = 2; // Completed
-                // Check if anyone dead needs replacement
+                if (this.endOfTurnStage === 0 && endQueue.length > 0) {
+                    // Start processing end turn events
+                    this.processNextAction();
+                    return;
+                }
+
+                // Check Fainted Pokemon (Stage 1)
                 const p1Dead = p1.team[p1.activeIdx].currentHp === 0;
                 const p2Dead = p2.team[p2.activeIdx].currentHp === 0;
 
-                if (p1Dead) {
-                    if (!hasAlive(p1)) {
-                        this.showGameOver(1);
-                        return;
+                if (p1Dead || p2Dead) {
+                    // Winner check first? No, if one faints, we check if they have others.
+                    // If no legal switch, they lose.
+                    // This is handled in showSwitchScreen logic usually, or here.
+                    const hasAlive = (p) => p.team.some(m => m.currentHp > 0);
+
+                    if (p1Dead) {
+                        if (!hasAlive(p1)) { this.showGameOver(1); return; }
+                        this.currentPlayerIndex = 0; this.showSwitchScreen(true); return;
                     }
-                    this.currentPlayerIndex = 0; this.showSwitchScreen(true); return;
-                }
-                if (p2Dead) {
-                    if (!hasAlive(p2)) {
-                        this.showGameOver(0);
-                        return;
+                    if (p2Dead) {
+                        if (!hasAlive(p2)) { this.showGameOver(0); return; }
+                        this.currentPlayerIndex = 1; this.showSwitchScreen(true); return;
                     }
-                    this.currentPlayerIndex = 1; this.showSwitchScreen(true); return;
                 }
 
-                // Show Next Turn Button or Auto
-                const btn = document.querySelector('#screen-result button');
-                if (btn) {
-                    btn.disabled = false;
-                    btn.onclick = () => {
-                        this.resetTurnActions();
-                        app.nextTurn();
-                    };
+                // Finalize Turn
+                this.turn++;
+                this.endOfTurnStage = 0;
+
+                // Online Listeners for Next Turn
+                if (this.gameMode === 'online') {
+                    if (this.online.isHost) {
+                        const roomRef = db.ref('rooms/' + this.online.roomId);
+                        this.online.actionsBuffer = {};
+                        roomRef.child('actions/' + this.turn).on('child_added', snap => {
+                            const pIdx = parseInt(snap.key);
+                            this.online.actionsBuffer[pIdx] = snap.val();
+                            if (this.online.actionsBuffer[0] && this.online.actionsBuffer[1]) {
+                                this.players[0].action = this.online.actionsBuffer[0];
+                                this.players[1].action = this.online.actionsBuffer[1];
+                                roomRef.child('actions/' + this.turn).off();
+                                this.resolveTurn();
+                            }
+                        });
+                    } else {
+                        const roomRef = db.ref('rooms/' + this.online.roomId);
+                        roomRef.child('turns/' + (this.turn - 1) + '/main').off();
+                        roomRef.child('turns/' + (this.turn - 1) + '/end').off();
+                        roomRef.child('turns/' + this.turn + '/main').on('value', snap => {
+                            if (snap.exists()) this.processRemoteTurn(snap.val(), 'main');
+                        });
+                        roomRef.child('turns/' + this.turn + '/end').on('value', snap => {
+                            if (snap.exists()) {
+                                roomRef.child('turns/' + this.turn + '/state').once('value', s => {
+                                    if (s.exists()) this.players = s.val();
+                                    this.processRemoteTurn(snap.val(), 'end');
+                                });
+                            }
+                        });
+                    }
+                }
+
+                // Winner Check (Catch-all)
+                let p1Alive = p1.team.some(m => m.currentHp > 0);
+                let p2Alive = p2.team.some(m => m.currentHp > 0);
+
+                if (!p1Alive && !p2Alive) this.showGameOver(-1);
+                else if (!p1Alive) this.showGameOver(1);
+                else if (!p2Alive) this.showGameOver(0);
+                else {
+                    this.currentPlayerIndex = 0;
+                    if (this.gameMode === 'online') {
+                        this.currentPlayerIndex = this.online.myPlayerIdx;
+                        this.startTurnInput();
+                        document.querySelectorAll('.btn').forEach(b => b.disabled = false);
+                    } else {
+                        this.nextTurn();
+                    }
                 }
             },
 
