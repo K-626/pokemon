@@ -359,7 +359,7 @@
 
             <button class="btn" id="btn-main-action" onclick="app.handleMainAction()">Player 1 セットアップ開始</button>
             <button class="btn btn-blue" style="margin-top:10px;"
-                onclick="app.showScreen('screen-lobby')">オンライン対戦ロビーへ移動</button>
+                onclick="app.setGameMode('online'); app.showScreen('screen-lobby')">オンライン対戦ロビーへ移動</button>
         </div>
 
         <!-- Lobby Screen (Online) -->
@@ -1547,8 +1547,11 @@
                         // Host waits for P1 (Guest)
                         roomRef.child('players/1').on('value', snap => {
                             if (snap.exists()) {
+                                // Download Guest Data
+                                this.players[1] = snap.val();
+                                console.log("Guest data downloaded:", this.players[1]);
+
                                 // Both ready. Start Battle.
-                                // Allow a small delay or manual start? Auto-start for now.
                                 setTimeout(() => {
                                     roomRef.child('status').set('battle');
                                     this.initializeBattle();
@@ -1645,10 +1648,7 @@
                 }
             },
 
-            setGameMode: function (mode) {
-                this.isSinglePlayer = (mode === 'cpu');
-                console.log("Game Mode:", mode);
-            },
+
 
             applyRandomTeamToUi: function (pIdx) {
                 const data = this.generateRandomTeamData(pIdx);
@@ -1841,11 +1841,21 @@
             // --- Battle Flow ---
 
             initializeBattle: function () {
+                this.turn = 1;
+                this.weather = 'none';
+                this.weatherTurns = 0;
+                this.endOfTurnStage = 0;
+
+                this.isProcessingQueue = false;
+                this.turnQueue = [];
+
                 // Online Sync Check (Guest needs P0, Host needs P1)
                 if (this.gameMode === 'online') {
+                    console.log("Initializing Online Battle. Players:", this.players);
                     if (!this.players[0] || !this.players[1]) {
-                        // Attempt fetch if missing?
-                        // For now assume logic before this ensured it.
+                        console.error("Missing player data for online battle", this.players);
+                        alert("エラー: プレイヤーデータが同期できていません。再読み込みしてください。");
+                        return;
                     }
 
                     // Setup Turn Listeners
@@ -1869,7 +1879,8 @@
                             }
                         });
                     } else {
-                        // Guest: Listen for Turn Data (Main & End)
+                        // Guest: Listen for Turn Data
+                        // 1. Main Phase (attacks)
                         roomRef.child('turns/' + this.turn + '/main').off();
                         roomRef.child('turns/' + this.turn + '/main').on('value', snap => {
                             if (snap.exists()) {
@@ -1877,14 +1888,23 @@
                                 this.processRemoteTurn(queue, 'main');
                             }
                         });
-                        roomRef.child('turns/' + this.turn + '/end').off();
-                        roomRef.child('turns/' + this.turn + '/end').on('value', snap => {
-                            if (snap.exists()) {
-                                const queue = snap.val();
-                                // Also sync state
-                                roomRef.child('turns/' + this.turn + '/state').once('value', stateSnap => {
-                                    if (stateSnap.exists()) this.players = stateSnap.val();
-                                    this.processRemoteTurn(queue, 'end');
+
+                        // 2. End Phase & State Sync
+                        // Host always writes 'state' at the very end of processing.
+                        // We listen to 'state' to ensure we capture the end of turn even if 'end' queue is empty/null.
+                        roomRef.child('turns/' + this.turn + '/state').off();
+                        roomRef.child('turns/' + this.turn + '/state').on('value', stateSnap => {
+                            if (stateSnap.exists()) {
+                                // Fetch 'end' queue (might be null if no effects)
+                                roomRef.child('turns/' + this.turn + '/end').once('value', endSnap => {
+                                    const endQueue = endSnap.exists() ? endSnap.val() : [];
+
+                                    // Update State
+                                    this.players = stateSnap.val();
+                                    this.updateHpDisplay(); // Force update UI with new state
+
+                                    // Process End Queue (animations)
+                                    this.processRemoteTurn(endQueue, 'end');
                                 });
                             }
                         });
@@ -1895,10 +1915,6 @@
                     alert("エラー: プレイヤーデータが不足しています");
                     return;
                 }
-                this.turn = 0;
-                this.weather = 'none';
-                this.weatherTurns = 0;
-                this.endOfTurnStage = 0;
 
                 // --- Initialization for Hazards & Mechanics ---
                 this.players.forEach(p => {
@@ -1929,7 +1945,14 @@
             startTurnCycle: function () {
                 this.currentPlayerIndex = 0;
                 this.gameActive = true;
-                this.checkForcedSwitchStart();
+
+                if (this.gameMode === 'online') {
+                    // Both players input simultaneously for their own pokemon
+                    this.currentPlayerIndex = this.online.myPlayerIdx;
+                    this.startTurnInput();
+                } else {
+                    this.checkForcedSwitchStart();
+                }
             },
 
             curtainAction: function () {
@@ -2185,6 +2208,8 @@
             },
 
             startTurnInput: function () {
+                const container = document.getElementById('move-buttons');
+                if (container) container.innerHTML = ''; // Clear previous turn UI (waiting message, etc)
                 this.showScreen('screen-input');
                 const p = this.players[this.currentPlayerIndex];
                 const activeMon = p.team[p.activeIdx];
@@ -2273,7 +2298,7 @@
                     }
                 }
 
-                const container = document.getElementById('move-buttons');
+                // Fill move buttons
                 if (container) {
                     container.innerHTML = '';
 
@@ -2318,7 +2343,9 @@
                     if (this.currentPlayerIndex !== this.online.myPlayerIdx) return;
 
                     // Send to DB
-                    db.ref('rooms/' + this.online.roomId + '/actions/' + this.turn + '/' + this.online.myPlayerIdx).set(act);
+                    const actionPath = 'rooms/' + this.online.roomId + '/actions/' + this.turn + '/' + this.online.myPlayerIdx;
+                    console.log(`Sending action to: ${actionPath}`, act);
+                    db.ref(actionPath).set(act);
 
                     // UI Feedback
                     const container = document.getElementById('move-buttons');
@@ -2338,7 +2365,11 @@
 
             resetTurnActions: function () {
                 this.players.forEach(p => p.action = null);
-                this.currentPlayerIndex = 0;
+                if (this.gameMode === 'online') {
+                    this.currentPlayerIndex = this.online.myPlayerIdx;
+                } else {
+                    this.currentPlayerIndex = 0;
+                }
             },
 
             /**
@@ -2354,7 +2385,8 @@
 
                 // ログ初期化とターン数カウント
                 const logBox = document.getElementById('battle-log');
-                logBox.innerText = `--- ターン ${++this.turn} ---\n`;
+                logBox.innerText = `--- ターン ${this.turn} ---\n`;
+                console.log(`resolveTurn: Turn ${this.turn} started`);
                 this.endOfTurnStage = 0;
 
                 this.turnQueue = [];
@@ -3740,19 +3772,38 @@
             },
 
             processRemoteTurn: function (queue, phase) {
-                this.turnQueue = queue || [];
-                // If phase is 'end', we might need to handle turn increment after
-                this.processNextAction();
+                console.log(`processRemoteTurn (${phase}) for turn ${this.turn}`);
+
+                // 【修正】配列が存在しない場合のみ初期化
+                if (!this.turnQueue) this.turnQueue = [];
+
+                // 【修正】上書き(=)ではなく、既存のキューの後ろに追加(push)する
+                if (queue && queue.length > 0) {
+                    queue.forEach(q => this.turnQueue.push(q));
+                }
+
+                if (phase === 'end') {
+                    this.endOfTurnStage = 1;
+                }
+
+                // 【修正】アニメーション処理ループがまだ動いていない場合のみ起動する
+                // (動いている場合は、pushした分もそのループが続けて処理してくれる)
+                if (!this.isProcessingQueue) {
+                    this.processNextAction();
+                }
             },
 
             processNextAction: function () {
+                this.isProcessingQueue = true;
+
                 if (this.turnQueue.length === 0) {
-                    // End of turn processing
+                    // 【修正】キューが空になったらフラグをOFFにしてターン終了処理へ
+                    this.isProcessingQueue = false;
                     this.endTurn();
                     return;
                 }
-
                 const action = this.turnQueue.shift();
+
                 const logBox = document.getElementById('battle-log');
 
                 const wait = (ms) => setTimeout(() => this.processNextAction(), ms);
@@ -3839,6 +3890,7 @@
             },
 
             endTurn: function () {
+                console.log(`endTurn Entry. Turn: ${this.turn}, Stage: ${this.endOfTurnStage}`);
                 const logBox = document.getElementById('battle-log');
                 const p1 = this.players[0];
                 const p2 = this.players[1];
@@ -3848,6 +3900,12 @@
                 let endQueue = [];
 
                 if (this.endOfTurnStage === 0) {
+                    // Online Guest: Stop here and wait for Host's end phase data
+                    if (this.gameMode === 'online' && !this.online.isHost) {
+                        console.log("Guest waiting for online end phase data...");
+                        return;
+                    }
+
                     // Field / Trick Room Management
                     if (this.trickRoomTurns > 0) {
                         this.trickRoomTurns--;
@@ -4018,14 +4076,16 @@
                 // Add endQueue to main queue
                 endQueue.forEach(q => this.turnQueue.push(q));
 
-                if (this.gameMode === 'online' && this.online.isHost && endQueue.length > 0) {
+                if (this.gameMode === 'online' && this.online.isHost) {
                     // Upload End Phase
                     db.ref('rooms/' + this.online.roomId + '/turns/' + this.turn + '/end').set(endQueue);
                     // Upload State
                     db.ref('rooms/' + this.online.roomId + '/turns/' + this.turn + '/state').set(this.players);
                 }
 
-                if (this.endOfTurnStage === 0 && endQueue.length > 0) {
+                // 【修正2】Host側の画面でもメッセージを表示するように条件を緩和
+                // (endOfTurnStageは直前で1に変更されているため、endQueueの中身だけで判定する)
+                if (endQueue.length > 0) {
                     // Start processing end turn events
                     this.processNextAction();
                     return;
@@ -4054,12 +4114,14 @@
                 // Finalize Turn
                 this.turn++;
                 this.endOfTurnStage = 0;
+                console.log(`Turn Finalized. Next turn: ${this.turn}`);
 
                 // Online Listeners for Next Turn
                 if (this.gameMode === 'online') {
+                    const roomRef = db.ref('rooms/' + this.online.roomId);
                     if (this.online.isHost) {
-                        const roomRef = db.ref('rooms/' + this.online.roomId);
                         this.online.actionsBuffer = {};
+                        roomRef.child('actions/' + this.turn).off();
                         roomRef.child('actions/' + this.turn).on('child_added', snap => {
                             const pIdx = parseInt(snap.key);
                             this.online.actionsBuffer[pIdx] = snap.val();
@@ -4071,17 +4133,27 @@
                             }
                         });
                     } else {
-                        const roomRef = db.ref('rooms/' + this.online.roomId);
+                        // Cleanup old listeners for previous turn
                         roomRef.child('turns/' + (this.turn - 1) + '/main').off();
-                        roomRef.child('turns/' + (this.turn - 1) + '/end').off();
+                        roomRef.child('turns/' + (this.turn - 1) + '/state').off();
+
+                        // Listen for Next Turn
+
+                        // 1. Main Phase
+                        roomRef.child('turns/' + this.turn + '/main').off();
                         roomRef.child('turns/' + this.turn + '/main').on('value', snap => {
                             if (snap.exists()) this.processRemoteTurn(snap.val(), 'main');
                         });
-                        roomRef.child('turns/' + this.turn + '/end').on('value', snap => {
-                            if (snap.exists()) {
-                                roomRef.child('turns/' + this.turn + '/state').once('value', s => {
-                                    if (s.exists()) this.players = s.val();
-                                    this.processRemoteTurn(snap.val(), 'end');
+
+                        // 2. End Phase & State
+                        roomRef.child('turns/' + this.turn + '/state').off();
+                        roomRef.child('turns/' + this.turn + '/state').on('value', stateSnap => {
+                            if (stateSnap.exists()) {
+                                roomRef.child('turns/' + this.turn + '/end').once('value', endSnap => {
+                                    const endQueue = endSnap.exists() ? endSnap.val() : [];
+                                    this.players = stateSnap.val();
+                                    this.updateHpDisplay();
+                                    this.processRemoteTurn(endQueue, 'end');
                                 });
                             }
                         });
@@ -4520,6 +4592,13 @@
                 // We should check if the OTHER player also needs to switch
                 // Or if we are done, proceed to nextTurn (which starts turn cycle for P1)
 
+                if (this.gameMode === 'online') {
+                    if (this.online.isHost) {
+                        // Host notifies Guest of state change after switch
+                        db.ref('rooms/' + this.online.roomId + '/turns/' + this.turn + '/state').set(this.players);
+                    }
+                }
+
                 const p1Dead = this.players[0].team[this.players[0].activeIdx].currentHp === 0;
                 const p2Dead = this.players[1].team[this.players[1].activeIdx].currentHp === 0;
 
@@ -4538,6 +4617,20 @@
             },
 
             showSwitchScreen: function (isForced) {
+                if (this.gameMode === 'online') {
+                    if (this.currentPlayerIndex !== this.online.myPlayerIdx) {
+                        // Not my turn to switch. Show waiting screen.
+                        this.showScreen('screen-curtain');
+                        const msgEl = document.getElementById('curtain-msg');
+                        if (msgEl) msgEl.innerText = "相手の交代を待っています...";
+                        const subEl = document.getElementById('curtain-sub');
+                        if (subEl) subEl.innerText = "";
+                        const btn = document.getElementById('btn-curtain-action');
+                        if (btn) btn.style.display = 'none';
+                        return;
+                    }
+                }
+
                 if (this.isSinglePlayer && this.currentPlayerIndex === 1) {
                     this.decideCpuSwitch(isForced);
                     return;
