@@ -1076,6 +1076,28 @@
                     if (name === 'ねこのて' || name === 'Assist') { m.effect.meta.assist = true; m.target = 'self'; m.category = 'status'; }
                     if (name === 'みがわり' || name === 'Substitute') { m.effect.meta.substitute = true; m.target = 'self'; m.category = 'status'; }
 
+                    // --- New Move Overrides (Shell Smash, Roar, Court Change, etc.) ---
+                    if (['からをやぶる', 'Shell Smash'].includes(name)) {
+                        m.effect.statChanges = [
+                            { stat: 'def', stage: -1, target: 'self' },
+                            { stat: 'spd', stage: -1, target: 'self' },
+                            { stat: 'atk', stage: 2, target: 'self' },
+                            { stat: 'spa', stage: 2, target: 'self' },
+                            { stat: 'spe', stage: 2, target: 'self' }
+                        ];
+                    }
+                    if (['ほえる', 'Roar', 'ふきとばし', 'Whirlwind'].includes(name)) {
+                        m.effect.meta.forceSwitch = true;
+                        m.target = 'enemy';
+                    }
+                    if (['コートチェンジ', 'Court Change'].includes(name)) {
+                        m.effect.meta.courtChange = true;
+                    }
+                    if (['あばれる', 'Thrash'].includes(name)) {
+                        m.effect.meta.outrage = true;
+                        m.target = 'random';
+                    }
+
                     // Status moves should usually have 100% status chance
                     if (m.category === 'status' && m.effect.meta.status) {
                         m.effect.meta.statusChance = 100;
@@ -1192,6 +1214,14 @@
 
                 if (str.match(/Raises the user's/i) || str.includes('自分の能力を上げ')) {
                     if (res.statChanges.length === 0) res.meta.statSelf = true;
+                }
+
+                // NEW: All Stats (Ancient Power, Silver Wind, etc.)
+                if (str.match(/raises all its stats/i) || str.includes('全能力') || str.includes('すべての能力')) {
+                    const chance = (str.includes('10%') || str.includes('たまに')) ? 10 : 100;
+                    ['atk', 'def', 'spa', 'spd', 'spe'].forEach(s => {
+                        res.statChanges.push({ target: 'self', stat: s, stage: 1, chance: chance });
+                    });
                 }
 
                 // 5. High Crit
@@ -1973,6 +2003,17 @@
 
                     moves.forEach((m, idx) => {
                         if (!m.name || m.name === '-') return;
+
+                        // --- Logic Locking Checks ---
+                        // Choice Item Lock
+                        if (['こだわりハチマキ', 'こだわりメガネ', 'こだわりスカーフ', 'choice_band', 'choice_specs', 'choice_scarf'].includes(activeMon.item) && activeMon.choiceMove && activeMon.choiceMove !== m.name) return;
+                        // Encore Lock
+                        if (activeMon.encore && activeMon.encore.moveName !== m.name) return;
+                        // Taunt Lock
+                        if (activeMon.tauntTurns > 0 && m.category === 'status') return;
+                        // Disable Lock
+                        if (activeMon.disable && activeMon.disable.moveName === m.name) return;
+
                         let score = 0;
 
                         if (m.category !== 'status') {
@@ -2214,6 +2255,16 @@
                 const p = this.players[this.currentPlayerIndex];
                 const activeMon = p.team[p.activeIdx];
 
+                // --- Outrage / Thrash Check (Input Skip) ---
+                if (activeMon && activeMon.outrage) {
+                    const mIdx = activeMon.moves.findIndex(m => m.name === activeMon.outrage.moveName);
+                    if (mIdx !== -1) {
+                        // Auto-select and skip UI
+                        this.registerMove(mIdx);
+                        return;
+                    }
+                }
+
                 // Opponent Info
                 const opponentIdx = 1 - this.currentPlayerIndex;
                 const opP = this.players[opponentIdx];
@@ -2308,7 +2359,37 @@
                         btn.className = 'btn btn-move';
                         const typeJp = TYPE_EN_TO_JP[m.type] || m.type;
                         btn.innerHTML = `<strong>${m.name}</strong><br>${typeJp} / ${m.category === 'status' ? '-' : m.power}`;
-                        btn.onclick = () => this.registerMove(idx);
+
+                        // --- Lock Check ---
+                        let disabled = false;
+                        let reason = "";
+
+                        // Choice Lock
+                        if (['こだわりハチマキ', 'こだわりメガネ', 'こだわりスカーフ', 'choice_band', 'choice_specs', 'choice_scarf'].includes(activeMon.item) && activeMon.choiceMove && activeMon.choiceMove !== m.name) {
+                            disabled = true; reason = "(こだわり)";
+                        }
+                        // Encore
+                        if (activeMon.encore && activeMon.encore.moveName !== m.name) {
+                            disabled = true; reason = "(アンコール)";
+                        }
+                        // Taunt
+                        if (activeMon.tauntTurns > 0 && m.category === 'status') {
+                            disabled = true; reason = "(挑発)";
+                        }
+                        // Disable
+                        if (activeMon.disable && activeMon.disable.moveName === m.name) {
+                            disabled = true; reason = "(金縛り)";
+                        }
+
+                        if (disabled) {
+                            btn.disabled = true;
+                            btn.style.opacity = '0.5';
+                            btn.style.cursor = 'not-allowed';
+                            btn.innerHTML += `<br><span style="color:red; font-size:10px;">${reason}</span>`;
+                        } else {
+                            btn.onclick = () => this.registerMove(idx);
+                        }
+
                         container.appendChild(btn);
                     });
 
@@ -2452,14 +2533,14 @@
                 p2.team[p2.activeIdx].currentProtectEffect = null;
                 p2.team[p2.activeIdx].flinched = false;
 
-                order.forEach(actorIdx => {
+                for (const actorIdx of order) {
                     const targetIdx = 1 - actorIdx;
                     const actorP = this.players[actorIdx];
                     const targetP = this.players[targetIdx];
                     let act = actorP.action;
 
                     // Dead check
-                    if (simState[actorIdx].currentHp <= 0) return;
+                    if (simState[actorIdx].currentHp <= 0) continue;
 
                     const attacker = actorP.team[simActiveIdx[actorIdx]];
                     const defender = targetP.team[simActiveIdx[targetIdx]];
@@ -2474,7 +2555,7 @@
                     if (attacker.recharge) {
                         this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 反動で 動けない！` });
                         attacker.recharge = false; // Reset for next turn
-                        return; // Skip action
+                        continue; // Skip action
                     }
 
                     // --- Taunt check ---
@@ -2482,7 +2563,7 @@
                         const move = attacker.moves[act.moveIdx];
                         if (move.category === 'status') {
                             this.turnQueue.push({ type: 'text', msg: `${attacker.name} は ちょうはつされて 変化技が出せない！` });
-                            return;
+                            continue;
                         }
                     }
 
@@ -2502,7 +2583,7 @@
                         const move = attacker.moves[act.moveIdx];
                         if (move.name === attacker.disable.moveName) {
                             this.turnQueue.push({ type: 'text', msg: `${attacker.name} は かなしばりで 技が出せない！` });
-                            return;
+                            continue;
                         }
                     }
 
@@ -2515,7 +2596,7 @@
                                 attacker.status = null;
                             } else {
                                 this.turnQueue.push({ type: 'text', msg: `${attacker.name} はこおってしまって動けない！` });
-                                return;
+                                continue;
                             }
                         }
 
@@ -2523,7 +2604,7 @@
                         if (attacker.flinched) {
                             this.turnQueue.push({ type: 'text', msg: `${attacker.name} は ひるんで動けない！` });
                             attacker.flinched = false;
-                            return;
+                            continue;
                         }
 
                         // Sleep check
@@ -2534,7 +2615,7 @@
                                 attacker.status = null;
                             } else {
                                 this.turnQueue.push({ type: 'text', msg: `${attacker.name} はぐうぐう眠っている...` });
-                                return;
+                                continue;
                             }
                         }
 
@@ -2557,7 +2638,7 @@
                                     simState[actorIdx].currentHp -= dmg;
                                     if (simState[actorIdx].currentHp < 0) simState[actorIdx].currentHp = 0;
                                     this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: dmg });
-                                    return;
+                                    continue;
                                 }
                             }
                         }
@@ -2566,7 +2647,7 @@
                         if (attacker.status && attacker.status.condition === 'par') {
                             if (Math.random() < 0.25) {
                                 this.turnQueue.push({ type: 'text', msg: `${attacker.name} は体がしびれて動けない！` });
-                                return;
+                                continue;
                             }
                         }
                     }
@@ -2654,7 +2735,7 @@
                         // --- Burn Up (もえつきる) Check ---
                         if (move.name === 'もえつきる' && !attacker.types.includes('fire')) {
                             this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
-                            return;
+                            continue;
                         }
 
                         // --- Metronome (ゆびをふる) ---
@@ -2674,7 +2755,7 @@
                                 move = this.lastMoveUsed;
                             } else {
                                 this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
-                                return;
+                                continue;
                             }
                         }
 
@@ -2682,7 +2763,7 @@
                         if (move.name === 'ゆめくい' || move.name === 'Dream Eater') {
                             if (!defender.status || defender.status.condition !== 'slp') {
                                 this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
-                                return;
+                                continue;
                             }
                         }
 
@@ -2692,10 +2773,10 @@
                                 this.turnQueue.push({ type: 'text', msg: `${attacker.name} は ${this.lastMoveUsed.name} を スケッチした！` });
                                 // Replace move in attacker's moveset
                                 attacker.moves[act.moveIdx] = { ...this.lastMoveUsed, pp: this.lastMoveUsed.maxPp || 10, maxPp: this.lastMoveUsed.maxPp || 10 };
-                                return;
+                                continue;
                             } else {
                                 this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
-                                return;
+                                continue;
                             }
                         }
 
@@ -2710,14 +2791,14 @@
                             } else {
                                 this.turnQueue.push({ type: 'text', msg: 'しかし 控えがいなかった！' });
                             }
-                            return;
+                            continue;
                         }
 
                         // --- Imprison (ふういん) ---
                         if (move.name === 'ふういん' || move.name === 'Imprison') {
                             attacker.isImprisoning = true;
                             this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 周りの技を 封じ込めた！` });
-                            return;
+                            continue;
                         }
 
                         // Imprison Check
@@ -2725,7 +2806,7 @@
                             const knownByEnemy = defender.moves.some(m => m.name === move.name);
                             if (knownByEnemy) {
                                 this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 封印されているため 技が出せない！` });
-                                return;
+                                continue;
                             }
                         }
 
@@ -2745,7 +2826,7 @@
                                 // Continue with chosen move
                             } else {
                                 this.turnQueue.push({ type: 'text', msg: 'しかし 技が出せなかった！' });
-                                return;
+                                continue;
                             }
                         }
 
@@ -2754,14 +2835,14 @@
                             if (!attacker.perish) attacker.perish = 4;
                             if (!defender.perish) defender.perish = 4;
                             this.turnQueue.push({ type: 'text', msg: '滅びの歌が 聞こえてきた！' });
-                            return;
+                            continue;
                         }
 
                         // --- Transform (へんしん) ---
                         if (move.name === 'へんしん' || move.name === 'Transform') {
                             if (attacker.isTransformed || defender.isTransformed) {
                                 this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
-                                return;
+                                continue;
                             }
                             attacker.isTransformed = true;
                             attacker.types = [...defender.types];
@@ -2770,7 +2851,7 @@
                             attacker.moves = defender.moves.map(m => ({ ...m, pp: 5, maxPp: 5 }));
 
                             this.turnQueue.push({ type: 'text', msg: `${attacker.name} は ${defender.name} に へんしんした！` });
-                            return;
+                            continue;
                         }
 
                         // --- Psych Up (じこあんじ) ---
@@ -2781,7 +2862,7 @@
                                 attacker.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
                             }
                             this.turnQueue.push({ type: 'text', msg: `${attacker.name} は ${defender.name} の 能力変化を コピーした！` });
-                            return; // Ends turn as it is a status move with only this effect
+                            continue; // Ends turn as it is a status move with only this effect
                         }
 
                         // --- Disable (かなしばり) ---
@@ -2792,7 +2873,7 @@
                             } else {
                                 this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
                             }
-                            return;
+                            continue;
                         }
 
                         // --- Encore (アンコール) ---
@@ -2803,14 +2884,14 @@
                             } else {
                                 this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
                             }
-                            return;
+                            continue;
                         }
 
                         // --- Taunt (ちょうはつ) ---
                         if (move.name === 'ちょうはつ' || move.name === 'Taunt') {
                             defender.tauntTurns = 3;
                             this.turnQueue.push({ type: 'text', msg: `${defender.name} は ちょうはつされた！` });
-                            return;
+                            continue;
                         }
 
                         // --- Charge (じゅうでん) ---
@@ -2818,7 +2899,7 @@
                             attacker.ranks.spd = Math.min(6, (attacker.ranks.spd || 0) + 1);
                             attacker.isCharged = true;
                             this.turnQueue.push({ type: 'text', msg: `${attacker.name} は じゅうでんした！ 特防が 上がった！` });
-                            return;
+                            continue;
                         }
 
                         // --- Last Resort (とっておき) ---
@@ -2828,7 +2909,7 @@
                             const allUsed = otherMoves.length > 0 && otherMoves.every(m => m.used);
                             if (!allUsed) {
                                 this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
-                                return;
+                                continue;
                             }
                         }
 
@@ -2836,7 +2917,7 @@
                         if (move.name === 'ポルターガイスト' || move.name === 'Poltergeist') {
                             if (!defender.item || defender.item === 'none') {
                                 this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
-                                return;
+                                continue;
                             } else {
                                 this.turnQueue.push({ type: 'text', msg: `${defender.name} は ${defender.item} を 操っている！` });
                             }
@@ -2854,7 +2935,7 @@
                             // Check if target is grounded (not flying)
                             if (!defender.types.includes('flying')) {
                                 this.turnQueue.push({ type: 'text', msg: `サイコフィールドで ${attacker.name} は 攻撃できない！` });
-                                return;
+                                continue;
                             }
                         }
 
@@ -2866,14 +2947,14 @@
                         // Assault Vest Check
                         if (attacker.item === 'とつげきチョッキ' && move.category === 'status') {
                             this.turnQueue.push({ type: 'text', msg: `${attacker.name} は とつげきチョッキで 変化技が出せない！` });
-                            return;
+                            continue;
                         }
 
                         // Choice Lock Check
                         const choiceItems = ['こだわりハチマキ', 'こだわりメガネ', 'こだわりスカーフ'];
                         if (choiceItems.includes(attacker.item) && attacker.choiceMove && attacker.choiceMove !== move.name) {
                             this.turnQueue.push({ type: 'text', msg: `${attacker.name} は こだわりアイテムで 技が縛られている！` });
-                            return;
+                            continue;
                         }
                         if (choiceItems.includes(attacker.item)) {
                             attacker.choiceMove = move.name;
@@ -2932,7 +3013,7 @@
                                     const stageText = (stage > 0) ? '上がった' : '下がった';
                                     this.turnQueue.push({ type: 'text', msg: `${attacker.name} の ${statNames[stat]} が ${stageText}！` });
                                 }
-                                return;
+                                continue;
                             }
                         }
 
@@ -2945,7 +3026,7 @@
                         if (attacker.recharge) {
                             this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 反動で 動けない！` });
                             attacker.recharge = false;
-                            return;
+                            continue;
                         }
 
                         // --- Protection Success Check ---
@@ -2973,11 +3054,11 @@
                                 }
 
                                 this.turnQueue.push({ type: 'text', msg: `${attacker.name} は まもりに入った！` });
-                                return; // Protection move ends here
+                                continue; // Protection move ends here
                             } else {
                                 attacker.protectCount = 0;
                                 this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
-                                return;
+                                continue;
                             }
                         } else {
                             // Reset count if non-protect move used
@@ -3026,7 +3107,7 @@
                                     this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: rec, effMsg: 'トゲのダメージを受けた！', targetName: attacker.name });
                                 }
                             }
-                            return;
+                            continue;
                         }
 
                         // --- 命中判定ロジック ---
@@ -3036,7 +3117,7 @@
                         const accMult = this.getAccRankMultiplier(attackerAccRank);
                         const evaMult = this.getAccRankMultiplier(defenderEvaRank);
                         let accBase = CUSTOM_ACCURACY[move.name] !== undefined ? CUSTOM_ACCURACY[move.name] : (moveData.accuracy !== undefined ? moveData.accuracy : 100);
-                        if (attacker.item === '広角レンズ') accBase = Math.floor(accBase * 1.1);
+                        if (attacker.item === '広角レンズ' || attacker.item === 'Wide Lens') accBase = Math.floor(accBase * 1.1);
 
                         // Invulnerability Check
                         let invulnerableMiss = false;
@@ -3562,9 +3643,12 @@
                             // Original Status/Recoil/Stat logic
                             if (simState[targetIdx].currentHp > 0 || (effect.meta && effect.meta.statSelf)) {
                                 if (effect.meta) {
-                                    // Status (Covert Cloak check)
-                                    if (effect.meta.status && !defender.status && defender.item !== 'おんみつマント') {
-                                        const chance = effect.meta.statusChance || 100;
+                                    // Secondary Status Effect (e.g. Thunderbolt -> Par)
+                                    // Added Covert Cloak Check
+                                    if (effect.meta.status && !defender.status && defender.item !== 'おんみつマント' && defender.item !== 'Covert Cloak') {
+                                        let chance = effect.meta.statusChance || 100;
+                                        if (attacker.ability === 'Serene Grace' || attacker.ability === 'てんのめぐみ') chance *= 2;
+
                                         if (Math.random() * 100 < chance) {
                                             const map = { psn: 'どく', par: 'まひ', brn: 'やけど', frz: 'こおり', slp: 'ねむり' };
                                             let turns = 0;
@@ -3611,6 +3695,49 @@
                                         }
                                     }
 
+                                    // --- Court Change (コートチェンジ) ---
+                                    if (effect.meta && effect.meta.courtChange) {
+                                        const p1 = this.players[0];
+                                        const p2 = this.players[1];
+
+                                        // Swap Hazards
+                                        const tmpHazards = JSON.parse(JSON.stringify(p1.hazards));
+                                        p1.hazards = JSON.parse(JSON.stringify(p2.hazards));
+                                        p2.hazards = tmpHazards;
+
+                                        // Swap Screens (Active mon screens exchange)
+                                        const m1 = p1.team[p1.activeIdx];
+                                        const m2 = p2.team[p2.activeIdx];
+                                        const tmpScreens = m1.screens ? JSON.parse(JSON.stringify(m1.screens)) : null;
+                                        m1.screens = m2.screens ? JSON.parse(JSON.stringify(m2.screens)) : null;
+                                        m2.screens = tmpScreens;
+
+                                        this.turnQueue.push({ type: 'text', msg: `${attacker.name} は コートチェンジした！` });
+                                        this.turnQueue.push({ type: 'text', msg: `お互いの 場の効果が 入れ替わった！` });
+                                    }
+
+                                    // --- Roar / Whirlwind (Forced Switch) ---
+                                    if (effect.meta && effect.meta.forceSwitch && simState[targetIdx].currentHp > 0) {
+                                        const p = this.players[targetIdx];
+                                        const bench = p.team.map((m, i) => ({ m, i })).filter(x => x.i !== p.activeIdx && x.m.currentHp > 0);
+                                        if (bench.length > 0) {
+                                            const rnd = bench[Math.floor(Math.random() * bench.length)];
+                                            this.turnQueue.push({ type: 'text', msg: `${defender.name} は 吹き飛ばされた！` });
+                                            this.turnQueue.push({
+                                                type: 'switch',
+                                                actorIdx: targetIdx,
+                                                newActiveIdx: rnd.i,
+                                                oldName: defender.name,
+                                                newName: rnd.m.name
+                                            });
+                                            // Effect success
+                                            hits = h + 1;
+                                            break;
+                                        } else {
+                                            this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
+                                        }
+                                    }
+
                                     // --- Reactive Items (Post-Hit Trigger) ---
                                     if (totalDmg > 0 && simState[targetIdx].currentHp > 0) {
                                         // Red Card (レッドカード)
@@ -3643,19 +3770,9 @@
                                         if (defender.item === 'だっしゅつボタン' && !defender.consumeItem) {
                                             defender.consumeItem = true;
                                             this.turnQueue.push({ type: 'text', msg: `${defender.name} の だっしゅつボタンが 発動した！` });
-                                            // Force Defender Switch (Request)
-                                            // This should ideally prompt user.
-                                            // For automation simplicity: Random switch if CPU, or "Must Switch" state for Player.
-                                            // We will push a special 'forceSwitch' action?
-                                            // Or simplified: Just random switch for now to ensure mechanic works "normally" (stops turn).
-                                            const p = this.players[targetIdx];
-                                            const bench = p.team.map((m, i) => ({ m, i })).filter(x => x.i !== p.activeIdx && x.m.currentHp > 0);
-                                            if (bench.length > 0) {
-                                                // TODO: If Player, show UI.
-                                                // Simulating random for now to unblock mechanic.
-                                                const rnd = bench[Math.floor(Math.random() * bench.length)];
-                                                this.turnQueue.push({ type: 'switch', actorIdx: targetIdx, newActiveIdx: rnd.i, oldName: defender.name, newName: rnd.m.name });
-                                            }
+                                            this.turnQueue.push({ type: 'forceSwitchAction', actorIdx: targetIdx, isEjectButton: true });
+                                            hits = h + 1; // Break multi-hit and end turn actions for this mon
+                                            break;
                                         }
                                     }
                                     // Recoil (Damage based)
@@ -3681,6 +3798,23 @@
 
                                     // --- Post-Move Updates ---
                                     this.lastMoveUsed = move; // For Copycat
+
+                                    // --- Outrage Logic ---
+                                    if (effect.meta.outrage) {
+                                        if (!attacker.outrage) {
+                                            attacker.outrage = { turns: Math.floor(Math.random() * 2) + 2, moveName: move.name };
+                                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は あばれだした！` });
+                                        }
+                                    }
+                                    // Turn Decrement and Confusion
+                                    if (attacker.outrage && attacker.outrage.moveName === move.name) {
+                                        attacker.outrage.turns--;
+                                        if (attacker.outrage.turns <= 0) {
+                                            attacker.outrage = null;
+                                            attacker.confusion = { turns: Math.floor(Math.random() * 4) + 2 };
+                                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 疲れ果てて こんらんした！` });
+                                        }
+                                    }
                                     attacker.lastMoveUsed = move; // For Disable/Encore
                                     move.used = true; // For Last Resort
 
@@ -3690,19 +3824,7 @@
                                         this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: attacker.stats.hp, msg: `${attacker.name} は 全力を出し切った！` });
                                     }
 
-                                    // Outrage Loop Decrement
-                                    if (attacker.outrage) {
-                                        attacker.outrage.turns--;
-                                        if (attacker.outrage.turns <= 0) {
-                                            attacker.outrage = null;
-                                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 暴れすぎて こんらんした！` });
-                                            // Apply confusion
-                                            if (!attacker.confusion) {
-                                                attacker.confusion = { turns: Math.floor(Math.random() * 4) + 1 };
-                                                this.turnQueue.push({ type: 'text', msg: `${attacker.name} は こんらんした！` });
-                                            }
-                                        }
-                                    }
+
 
                                     // Recoil (Max HP based - Steel Beam)
                                     if (effect.meta.recoilMaxHp) {
@@ -3724,12 +3846,19 @@
                                 if (effect.statChanges) {
                                     effect.statChanges.forEach(ch => {
                                         // Chance check for secondary effects
-                                        if (ch.chance && Math.random() * 100 > ch.chance) return;
+                                        let chance = ch.chance || 100;
+                                        if (attacker.ability === 'Serene Grace' || attacker.ability === 'てんのめぐみ') chance *= 2;
 
-                                        // Clear Amulet Check
-                                        if (ch.target !== 'self' && ch.stage < 0 && defender.item === 'クリアチャーム') {
-                                            this.turnQueue.push({ type: 'text', msg: `${defender.name} の クリアチャームが 能力ダウンを防いだ！` });
-                                            return;
+                                        if (Math.random() * 100 > chance) return;
+
+                                        // Clear Amulet / Covert Cloak Check
+                                        // Clear Amulet blocks stat drops. Covert Cloak blocks secondary effects.
+                                        if (ch.target !== 'self') {
+                                            if (defender.item === 'おんみつマント' || defender.item === 'Covert Cloak') return;
+                                            if (ch.stage < 0 && (defender.item === 'クリアチャーム' || defender.item === 'Clear Amulet')) {
+                                                this.turnQueue.push({ type: 'text', msg: `${defender.name} の アイテムが 能力ダウンを防いだ！` });
+                                                return;
+                                            }
                                         }
 
                                         const targetObj = (ch.target === 'self') ? attacker : defender;
@@ -3762,7 +3891,7 @@
                             }
                         }
                     }
-                });
+                }
 
                 if (this.gameMode === 'online' && this.online.isHost) {
                     // Upload Main Turn Queue
@@ -4096,28 +4225,122 @@
                 const p2Dead = p2.team[p2.activeIdx].currentHp === 0;
 
                 if (p1Dead || p2Dead) {
-                    // Winner check first? No, if one faints, we check if they have others.
-                    // If no legal switch, they lose.
-                    // This is handled in showSwitchScreen logic usually, or here.
+                    // Winner Check First
                     const hasAlive = (p) => p.team.some(m => m.currentHp > 0);
+                    if (p1Dead && !hasAlive(p1)) { this.showGameOver(1); return; }
+                    if (p2Dead && !hasAlive(p2)) { this.showGameOver(0); return; }
 
-                    if (p1Dead) {
-                        if (!hasAlive(p1)) { this.showGameOver(1); return; }
-                        this.currentPlayerIndex = 0; this.showSwitchScreen(true); return;
-                    }
-                    if (p2Dead) {
-                        if (!hasAlive(p2)) { this.showGameOver(0); return; }
-                        this.currentPlayerIndex = 1; this.showSwitchScreen(true); return;
+                    // Forced Switch Logic
+                    if (this.gameMode === 'online') {
+                        if (this.online.isHost) {
+                            // HOST Logic
+                            let p1NeedsSwitch = p1Dead;
+                            let p2NeedsSwitch = p2Dead;
+
+                            // 1. Check if Guest submitted choice
+                            db.ref('rooms/' + this.online.roomId + '/forced/' + this.turn + '/1').once('value', snap => {
+                                const guestChoiceIdx = snap.val();
+
+                                // If Guest needs switch but hasn't decided -> WAIT
+                                if (p2NeedsSwitch && guestChoiceIdx === null) {
+                                    console.log("Waiting for Guest Switch...");
+                                    this.showScreen('screen-curtain');
+                                    const msg = document.getElementById('curtain-msg');
+                                    if (msg) msg.innerText = "相手の交代を待っています...";
+
+                                    // Listen for Guest's choice
+                                    db.ref('rooms/' + this.online.roomId + '/forced/' + this.turn + '/1').off();
+                                    db.ref('rooms/' + this.online.roomId + '/forced/' + this.turn + '/1').on('value', s => {
+                                        if (s.exists()) {
+                                            // Guest decided. Re-run endTurn logic to proceed.
+                                            db.ref('rooms/' + this.online.roomId + '/forced/' + this.turn + '/1').off();
+                                            this.endTurn();
+                                        }
+                                    });
+                                    return;
+                                }
+
+                                // If Host needs switch -> Show UI (unless already done)
+                                if (p1NeedsSwitch) {
+                                    this.currentPlayerIndex = 0;
+                                    this.showSwitchScreen(true);
+                                    return;
+                                }
+
+                                // Both ready (or Guest ready and Host fine)
+                                // Apply Guest Switch if any
+                                if (p2NeedsSwitch && guestChoiceIdx !== null) {
+                                    this.performForcedSwitchOnline(1, guestChoiceIdx);
+                                }
+
+                                // Proceed
+                                this.finalizeTurn();
+                            });
+                            return;
+                        } else {
+                            // GUEST Logic
+                            if (p2Dead) {
+                                // Guest needs to switch
+                                this.currentPlayerIndex = 1;
+                                this.showSwitchScreen(true);
+                                return;
+                            }
+                            if (p1Dead) {
+                                // Host needs to switch. Guest waits.
+                                this.showScreen('screen-curtain');
+                                const msg = document.getElementById('curtain-msg');
+                                if (msg) msg.innerText = "相手の交代を待っています...";
+                                return;
+                            }
+                        }
+                    } else {
+                        // Offline Logic
+                        if (p1Dead) {
+                            this.currentPlayerIndex = 0;
+                            this.showSwitchScreen(true);
+                            return;
+                        }
+                        if (p2Dead) {
+                            this.currentPlayerIndex = 1;
+                            this.showSwitchScreen(true);
+                            return;
+                        }
                     }
                 }
 
-                // Finalize Turn
+                // Finalize Turn if no one died (or after switches resolved)
+                this.finalizeTurn();
+            },
+
+            performForcedSwitchOnline: function (playerIdx, newOneIdx) {
+                const p = this.players[playerIdx];
+                const oldName = p.team[p.activeIdx].name;
+                p.activeIdx = newOneIdx;
+                const newName = p.team[p.activeIdx].name;
+
+                const logBox = document.getElementById('battle-log');
+                logBox.innerText += `${p.name} は ${oldName} に代わって ${newName} を繰り出した！\n`;
+
+                // Trigger entry hazards etc? (Simplification: just basic switch for now)
+                // In a perfect sim, we'd run checkBoosterEnergy etc.
+                this.checkBoosterEnergy(p.team[p.activeIdx]);
+            },
+
+            finalizeTurn: function () {
                 this.turn++;
                 this.endOfTurnStage = 0;
                 console.log(`Turn Finalized. Next turn: ${this.turn}`);
 
-                // Online Listeners for Next Turn
+                // Online: Host uploads final state after switches
+                if (this.gameMode === 'online' && this.online.isHost) {
+                    db.ref('rooms/' + this.online.roomId + '/turns/' + (this.turn - 1) + '/state').set(this.players);
+                    // Also notify next turn start by writing empty action or just relying on state?
+                    // Actually, we usually rely on 'state' update of Previous turn to signal completion.
+                    // But for robustness, let's just proceed.
+                }
+
                 if (this.gameMode === 'online') {
+                    // Update Listeners for NEW turn
                     const roomRef = db.ref('rooms/' + this.online.roomId);
                     if (this.online.isHost) {
                         this.online.actionsBuffer = {};
@@ -4133,19 +4356,15 @@
                             }
                         });
                     } else {
-                        // Cleanup old listeners for previous turn
+                        // Guest Listeners
                         roomRef.child('turns/' + (this.turn - 1) + '/main').off();
                         roomRef.child('turns/' + (this.turn - 1) + '/state').off();
 
-                        // Listen for Next Turn
-
-                        // 1. Main Phase
                         roomRef.child('turns/' + this.turn + '/main').off();
                         roomRef.child('turns/' + this.turn + '/main').on('value', snap => {
                             if (snap.exists()) this.processRemoteTurn(snap.val(), 'main');
                         });
 
-                        // 2. End Phase & State
                         roomRef.child('turns/' + this.turn + '/state').off();
                         roomRef.child('turns/' + this.turn + '/state').on('value', stateSnap => {
                             if (stateSnap.exists()) {
@@ -4160,13 +4379,13 @@
                     }
                 }
 
-                // Winner Check (Catch-all)
-                let p1Alive = p1.team.some(m => m.currentHp > 0);
-                let p2Alive = p2.team.some(m => m.currentHp > 0);
-
-                if (!p1Alive && !p2Alive) this.showGameOver(-1);
-                else if (!p1Alive) this.showGameOver(1);
-                else if (!p2Alive) this.showGameOver(0);
+                // Check Winner again just in case
+                const p1 = this.players[0];
+                const p2 = this.players[1];
+                const hasAlive = (p) => p.team.some(m => m.currentHp > 0);
+                if (!hasAlive(p1) && !hasAlive(p2)) this.showGameOver(-1);
+                else if (!hasAlive(p1)) this.showGameOver(1);
+                else if (!hasAlive(p2)) this.showGameOver(0);
                 else {
                     this.currentPlayerIndex = 0;
                     if (this.gameMode === 'online') {
@@ -4582,6 +4801,28 @@
             },
 
             performForcedSwitch: function (newIdx) {
+                // Online Check
+                if (this.gameMode === 'online') {
+                    if (!this.online.isHost) {
+                        // Guest: Send choice and WAIT
+                        db.ref('rooms/' + this.online.roomId + '/forced/' + this.turn + '/1').set(newIdx);
+
+                        this.showScreen('screen-curtain');
+                        const msg = document.getElementById('curtain-msg');
+                        if (msg) msg.innerText = "相手の選択を待っています...(Host Processing)";
+
+                        // We do NOT perform switch locally yet. Host will send updated State.
+                        // state listener in 'resolveTurn' (which is still active or re-established??)
+                        // Actually, 'resolveTurn' state listener is for Turn N. 
+                        // If we are in 'endTurn' of Turn N, the listener might process the State update from finalizeTurn.
+                        return;
+                    } else {
+                        // Host: Just perform switch locally, then check logic flow
+                        // Host logic is handled inside endTurn or by calling this?
+                        // If calling this manually from UI:
+                    }
+                }
+
                 const p = this.players[this.currentPlayerIndex];
                 const oldName = p.team[p.activeIdx].name;
                 p.activeIdx = newIdx;
@@ -4594,8 +4835,10 @@
 
                 if (this.gameMode === 'online') {
                     if (this.online.isHost) {
-                        // Host notifies Guest of state change after switch
-                        db.ref('rooms/' + this.online.roomId + '/turns/' + this.turn + '/state').set(this.players);
+                        // Host notifies Guest of state change after switch - Wait, finalizeTurn handles this?
+                        // If Host switches, we need to re-run endTurn logic to check if Guest also needs switch etc.
+                        this.endTurn();
+                        return;
                     }
                 }
 
@@ -4613,7 +4856,7 @@
                     return;
                 }
                 // If everyone alive, start fresh turn
-                this.nextTurn();
+                this.finalizeTurn();
             },
 
             showSwitchScreen: function (isForced) {
