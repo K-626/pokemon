@@ -1503,6 +1503,10 @@
                                 <input type="text" id="${prefix}_item" list="item-list" placeholder="道具名を入力" value="">
                             </div>
                             <div class="stat-row">
+                                <label>特性</label>
+                                <input type="text" id="${prefix}_ability" list="ability-list" placeholder="特性名を入力" value="">
+                            </div>
+                            <div class="stat-row">
                                 <strong>種 / 個 / 努 / 実</strong>
                             </div>
                             ${this.renderStatInput(prefix, 'h', 'HP')}
@@ -1644,7 +1648,8 @@
                                 trapped: null,
                                 recharge: false,
                                 protectCount: 0,
-                                isProtected: false
+                                isProtected: false,
+                                ability: ''
                             });
                             this.checkBoosterEnergy(team[team.length - 1]);
                         });
@@ -1775,7 +1780,8 @@
                             t2El ? t2El.value : 'none'
                         ],
                         status: null, // { condition: 'brn'|'par'|'psn'|'slp'|'frz', turns: N }
-                        item: document.getElementById(`${prefix}_item`) ? document.getElementById(`${prefix}_item`).value : ""
+                        item: document.getElementById(`${prefix}_item`) ? document.getElementById(`${prefix}_item`).value : "",
+                        ability: document.getElementById(`${prefix}_ability`) ? document.getElementById(`${prefix}_ability`).value : ""
                     });
                 }
                 if (this.players.length <= pIdx) this.players[pIdx] = {};
@@ -1869,6 +1875,37 @@
             },
 
             // --- Battle Flow ---
+
+            // --- Entry Ability Effects ---
+            checkEntryEffects: function (mon, sideIdx) {
+                const abilityName = (mon.ability || '').trim();
+                if (!abilityName) return;
+
+                const opponentIdx = 1 - sideIdx;
+                const opponent = this.players[opponentIdx].team[this.players[opponentIdx].activeIdx];
+
+                // Intimidate (いかく)
+                if (abilityName === 'いかく' || abilityName === 'Intimidate') {
+                    if (opponent.currentHp > 0) {
+                        if (!opponent.ranks) opponent.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
+                        // Clear Amulet blocks stat drops
+                        if (opponent.item === 'クリアチャーム' || opponent.item === 'Clear Amulet') {
+                            this.turnQueue.push({ type: 'text', msg: `${mon.name} の いかく！` });
+                            this.turnQueue.push({ type: 'text', msg: `${opponent.name} の アイテムが 能力ダウンを防いだ！` });
+                        } else {
+                            opponent.ranks.atk = Math.max(-6, opponent.ranks.atk - 1);
+                            this.turnQueue.push({ type: 'text', msg: `${mon.name} の いかく！ ${opponent.name} の こうげきが 下がった！` });
+                        }
+                    }
+                }
+
+                // Intrepid Sword (ふとうのつるぎ)
+                if (abilityName === 'ふとうのつるぎ' || abilityName === 'Intrepid Sword') {
+                    if (!mon.ranks) mon.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
+                    mon.ranks.atk = Math.min(6, mon.ranks.atk + 1);
+                    this.turnQueue.push({ type: 'text', msg: `${mon.name} の ふとうのつるぎ！ こうげきが 上がった！` });
+                }
+            },
 
             initializeBattle: function () {
                 this.turn = 1;
@@ -1967,6 +2004,21 @@
                         this.checkBoosterEnergy(mon);
                     });
                 });
+
+                // Entry effects for starting Pokemon
+                this.turnQueue = [];
+                this.players.forEach((p, idx) => {
+                    this.checkEntryEffects(p.team[p.activeIdx], idx);
+                });
+                if (this.turnQueue.length > 0) {
+                    this.battleStarting = true; // Flag to prevent endTurn from running
+                    this.showScreen('screen-result');
+                    const logBox = document.getElementById('battle-log');
+                    if (logBox) logBox.innerText = '--- バトル開始 ---\n';
+                    this.updateHpDisplay();
+                    this.processNextAction();
+                    return;
+                }
 
                 this.updateHpDisplay();
                 this.startTurnCycle();
@@ -2533,7 +2585,10 @@
                 p2.team[p2.activeIdx].currentProtectEffect = null;
                 p2.team[p2.activeIdx].flinched = false;
 
+                let turnSkipped = [false, false]; // Track forced-out Pokemon
                 for (const actorIdx of order) {
+                    // Skip if this Pokemon was forced out by Roar/Whirlwind/Red Card
+                    if (turnSkipped[actorIdx]) continue;
                     const targetIdx = 1 - actorIdx;
                     const actorP = this.players[actorIdx];
                     const targetP = this.players[targetIdx];
@@ -2672,6 +2727,9 @@
                         });
                         simActiveIdx[actorIdx] = act.switchIdx;
                         simState[actorIdx].currentHp = newMon.currentHp;
+
+                        // Entry Ability Effects
+                        this.checkEntryEffects(newMon, actorIdx);
 
                         // --- Entry Hazards ---
                         const hazards = actorP.hazards;
@@ -3730,9 +3788,14 @@
                                                 oldName: defender.name,
                                                 newName: rnd.m.name
                                             });
-                                            // Effect success
-                                            hits = h + 1;
-                                            break;
+                                            // Update simulation state for the forced switch
+                                            simActiveIdx[targetIdx] = rnd.i;
+                                            simState[targetIdx].currentHp = rnd.m.currentHp;
+                                            turnSkipped[targetIdx] = true; // Prevent forced-out mon from acting
+
+                                            // Entry effects for the new Pokemon (abilities)
+                                            this.checkEntryEffects(rnd.m, targetIdx);
+                                            continue; // Skip rest of this actor's post-move effects
                                         } else {
                                             this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
                                         }
@@ -3926,8 +3989,13 @@
                 this.isProcessingQueue = true;
 
                 if (this.turnQueue.length === 0) {
-                    // 【修正】キューが空になったらフラグをOFFにしてターン終了処理へ
                     this.isProcessingQueue = false;
+                    // If this was the initial battle entry effects queue, start the turn cycle
+                    if (this.battleStarting) {
+                        this.battleStarting = false;
+                        this.startTurnCycle();
+                        return;
+                    }
                     this.endTurn();
                     return;
                 }
