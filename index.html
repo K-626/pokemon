@@ -1911,6 +1911,9 @@
                 this.turn = 1;
                 this.weather = 'none';
                 this.weatherTurns = 0;
+                this.terrain = 'none';
+                this.terrainTurns = 0;
+                this.trickRoomTurns = 0;
                 this.endOfTurnStage = 0;
 
                 this.isProcessingQueue = false;
@@ -3965,6 +3968,16 @@
 
             processRemoteTurn: function (queue, phase) {
                 console.log(`processRemoteTurn (${phase}) for turn ${this.turn}`);
+
+                // Guest側: mainフェーズ開始時にresult画面を表示してログを初期化
+                if (phase === 'main') {
+                    this.showScreen('screen-result');
+                    const logBox = document.getElementById('battle-log');
+                    if (logBox) logBox.innerText = `--- ターン ${this.turn} ---\n`;
+                    this.updateHpDisplay();
+                    const btn = document.querySelector('#screen-result button');
+                    if (btn) btn.disabled = true;
+                }
 
                 // 【修正】配列が存在しない場合のみ初期化
                 if (!this.turnQueue) this.turnQueue = [];
