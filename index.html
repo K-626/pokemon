@@ -1000,6 +1000,7 @@
                         'どくづき': { status: 'psn', chance: 30 },
                         'スモッグ': { status: 'psn', chance: 40 },
                         'シェルアームズ': { status: 'psn', chance: 20 },
+                        'キラースピン': { status: 'psn', chance: 100 },
 
                         // Paralysis
                         'Thunder Shock': { status: 'par', chance: 10 },
@@ -3515,6 +3516,8 @@
                                     }
                                 }
 
+                                const actualHitDmg = Math.min(dmg, simState[targetIdx].currentHp);
+                                totalDmg += actualHitDmg;
                                 simState[targetIdx].currentHp -= dmg;
                                 if (simState[targetIdx].currentHp < 0) simState[targetIdx].currentHp = 0;
                                 if (simState[targetIdx].currentHp > defender.stats.hp) simState[targetIdx].currentHp = defender.stats.hp;
@@ -3609,6 +3612,21 @@
                                     msg: `${attacker.name} は 体力を回復した！`
                                 });
                             }
+
+                            // 1b. Recoil Damage
+                            if (effect.meta && effect.meta.recoil && totalDmg > 0) {
+                                // Rock Head (いしあたま) prevents recoil
+                                if (attacker.ability !== 'いしあたま' && attacker.ability !== 'Rock Head') {
+                                    const recoilDmg = Math.max(1, Math.floor(totalDmg * effect.meta.recoil));
+                                    simState[actorIdx].currentHp -= recoilDmg;
+                                    if (simState[actorIdx].currentHp < 0) simState[actorIdx].currentHp = 0;
+                                    this.turnQueue.push({
+                                        type: 'damage', targetIdx: actorIdx, damage: recoilDmg,
+                                        msg: `${attacker.name} は 反動ダメージを受けた！`
+                                    });
+                                }
+                            }
+
 
                             // 2. Variable Heal
                             if (effect.meta && effect.meta.heal) {
