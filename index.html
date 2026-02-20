@@ -2556,7 +2556,14 @@
                         if (!mon.types.includes('flying')) return 1;
                     }
                     if (moveData.name === 'トリックルーム') return -7;
-                    return moveData.priority || 0;
+                    let pri = moveData.priority || 0;
+
+                    // --- Prankster (いたずらごころ) ---
+                    if ((mon.ability === 'いたずらごころ' || mon.ability === 'Prankster') && move.category === 'status') {
+                        pri += 1;
+                    }
+
+                    return pri;
                 };
 
                 let p1Pri = getPriority(p1);
@@ -3369,7 +3376,7 @@
                                     if (simState[actorIdx].currentHp <= Math.floor(attacker.stats.hp / 2)) {
                                         this.turnQueue.push({ type: 'text', msg: '体力が足りない！' });
                                     } else {
-                                        const cost = Math.floor(attacker.stats.hp / 2);
+                                        const cost = Math.floor(attacker.stats.hp / 4);
                                         simState[actorIdx].currentHp -= cost;
                                         attacker.currentHp = simState[actorIdx].currentHp;
                                         if (!attacker.ranks) attacker.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
@@ -3720,7 +3727,8 @@
                             }
 
                             // Original Status/Recoil/Stat logic
-                            if (simState[targetIdx].currentHp > 0 || (effect.meta && effect.meta.statSelf)) {
+                            // --- Defender Alive Effects (Status, Reactive Items, etc.) ---
+                            if (simState[targetIdx].currentHp > 0) {
                                 if (effect.meta) {
                                     // Secondary Status Effect (e.g. Thunderbolt -> Par)
                                     // Added Covert Cloak Check
@@ -3733,7 +3741,6 @@
                                             let turns = 0;
                                             if (effect.meta.status === 'slp') turns = Math.floor(Math.random() * 3) + 1;
                                             let immune = false;
-                                            // Immunity logic...
                                             // Immunity logic...
                                             if (effect.meta.status === 'brn' && defender.types.includes('fire')) immune = true;
                                             if ((effect.meta.status === 'psn' || effect.meta.status === 'tox') && (defender.types.includes('poison') || defender.types.includes('steel'))) immune = true;
@@ -3775,7 +3782,7 @@
                                     }
 
                                     // --- Court Change (コートチェンジ) ---
-                                    if (effect.meta && effect.meta.courtChange) {
+                                    if (effect.meta.courtChange) {
                                         const p1 = this.players[0];
                                         const p2 = this.players[1];
 
@@ -3796,7 +3803,7 @@
                                     }
 
                                     // --- Roar / Whirlwind (Forced Switch) ---
-                                    if (effect.meta && effect.meta.forceSwitch && simState[targetIdx].currentHp > 0) {
+                                    if (effect.meta.forceSwitch) {
                                         const p = this.players[targetIdx];
                                         const bench = p.team.map((m, i) => ({ m, i })).filter(x => x.i !== p.activeIdx && x.m.currentHp > 0);
                                         if (bench.length > 0) {
@@ -3816,14 +3823,20 @@
 
                                             // Entry effects for the new Pokemon (abilities)
                                             this.checkEntryEffects(rnd.m, targetIdx);
-                                            continue; // Skip rest of this actor's post-move effects
+                                            // Skip rest of this actor's post-move effects?
+                                            // Since we are inside the 'Defender Alive' block and Roar forces them out,
+                                            // we should probably continue or check if we return?
+                                            // Original used 'continue' which skipped Attacker effect updates too!
+                                            // We should let Attacker effects run if possible, but Roar fundamentally ends interaction.
+                                            // But let's stick to original behavior of 'switching ends interaction' but now we use separate blocks.
+                                            // If we want to skip Attacker effects, we need a flag.
                                         } else {
                                             this.turnQueue.push({ type: 'text', msg: 'しかし うまくきまらなかった！' });
                                         }
                                     }
 
                                     // --- Reactive Items (Post-Hit Trigger) ---
-                                    if (totalDmg > 0 && simState[targetIdx].currentHp > 0) {
+                                    if (totalDmg > 0) {
                                         // Red Card (レッドカード)
                                         if (defender.item === 'レッドカード' && !defender.consumeItem) {
                                             defender.consumeItem = true;
@@ -3834,17 +3847,6 @@
                                             if (bench.length > 0) {
                                                 const rnd = bench[Math.floor(Math.random() * bench.length)];
                                                 this.turnQueue.push({ type: 'switch', actorIdx: actorIdx, newActiveIdx: rnd.i, oldName: attacker.name, newName: rnd.m.name });
-                                                // Actually update state in queue processing or here?
-                                                // turnQueue 'switch' type updates activeIdx visually and logically in processNextAction?
-                                                // Let's check processNextAction.
-                                                // Yes, it sets p.activeIdx.
-                                                // BUT, the current loop `order.forEach` might continue using the OLD active mon if we don't be careful.
-                                                // `resolveTurn` iterates `order`. If actor was first, and was forced out, the rest of the logic involves `attacker`.
-                                                // Since this is "Post-Hit", the turn for this pair is mostly done.
-                                                // If actor was second, this is end of turn.
-                                                // If actor was first, the second action (by defender) might target the NEW mon?
-                                                // `resolveTurn` uses `simActiveIdx` fixed at start. So logic continues targeting old slot?
-                                                // This is complex. For now, we queue the switch.
                                             } else {
                                                 this.turnQueue.push({ type: 'text', msg: 'しかし 控えがいなかった！' });
                                             }
@@ -3855,114 +3857,118 @@
                                             defender.consumeItem = true;
                                             this.turnQueue.push({ type: 'text', msg: `${defender.name} の だっしゅつボタンが 発動した！` });
                                             this.turnQueue.push({ type: 'forceSwitchAction', actorIdx: targetIdx, isEjectButton: true });
-                                            hits = h + 1; // Break multi-hit and end turn actions for this mon
+                                            hits = h + 1; // Break multi-hit works here because we access 'hits' and 'h'
+                                            // But we are deep in if blocks.
+                                            // We need to signal 'break' to the loop.
+                                            // Using a flag is safer if we can't break immediately.
+                                            // Original code used 'break'.
+                                            // 'break' is not valid inside if block unless inside loop. We are inside loop.
                                             break;
                                         }
                                     }
-                                    // Recoil (Damage based)
-                                    if (effect.meta.recoil && totalDmg > 0) {
-                                        const rec = Math.floor(totalDmg * effect.meta.recoil);
-                                        simState[actorIdx].currentHp -= rec;
-                                        if (simState[actorIdx].currentHp < 0) simState[actorIdx].currentHp = 0;
-                                        this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: rec, effMsg: '反動のダメージを受けた！' });
-                                    }
+                                }
+                            }
 
-                                    // --- Switching Move Logic ---
-                                    if (effect.meta.switchingMove && totalDmg > 0 && simState[targetIdx].currentHp >= 0) {
-                                        const p = this.players[actorIdx];
-                                        const bench = p.team.map((m, i) => ({ m, i })).filter(x => x.i !== p.activeIdx && x.m.currentHp > 0);
-                                        if (bench.length > 0) {
-                                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 手持ちに戻っていった！` });
-                                            // Handle this similar to Eject Button for now?
-                                            // Ideally, switch happens after damage.
-                                            // For automation we might need to handle this specially.
-                                            this.turnQueue.push({ type: 'forceSwitchAction', actorIdx: actorIdx });
-                                        }
-                                    }
+                            // --- Attacker / General Effects (Run even if target fainted) ---
+                            // [Duplicate Recoil Removed from here]
 
-                                    // --- Post-Move Updates ---
-                                    this.lastMoveUsed = move; // For Copycat
-
-                                    // --- Outrage Logic ---
-                                    if (effect.meta.outrage) {
-                                        if (!attacker.outrage) {
-                                            attacker.outrage = { turns: Math.floor(Math.random() * 2) + 2, moveName: move.name };
-                                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は あばれだした！` });
-                                        }
-                                    }
-                                    // Turn Decrement and Confusion
-                                    if (attacker.outrage && attacker.outrage.moveName === move.name) {
-                                        attacker.outrage.turns--;
-                                        if (attacker.outrage.turns <= 0) {
-                                            attacker.outrage = null;
-                                            attacker.confusion = { turns: Math.floor(Math.random() * 4) + 2 };
-                                            this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 疲れ果てて こんらんした！` });
-                                        }
-                                    }
-                                    attacker.lastMoveUsed = move; // For Disable/Encore
-                                    move.used = true; // For Last Resort
-
-                                    // Final Gambit Self-Faint
-                                    if (move.name === 'いのちがけ' || move.name === 'Final Gambit') {
-                                        simState[actorIdx].currentHp = 0;
-                                        this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: attacker.stats.hp, msg: `${attacker.name} は 全力を出し切った！` });
-                                    }
-
-
-
-                                    // Recoil (Max HP based - Steel Beam)
-                                    if (effect.meta.recoilMaxHp) {
-                                        const rec = Math.floor(attacker.stats.hp * effect.meta.recoilMaxHp);
-                                        simState[actorIdx].currentHp -= rec;
-                                        if (simState[actorIdx].currentHp < 0) simState[actorIdx].currentHp = 0;
-                                        this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: rec, effMsg: '体力を削って攻撃した！', targetName: attacker.name });
-                                    }
-
-                                    // Life Orb Recoil
-                                    if (attacker.item === 'いのちのたま' && totalDmg > 0) {
-                                        const loRec = Math.floor(attacker.stats.hp / 10);
-                                        simState[actorIdx].currentHp -= loRec;
-                                        if (simState[actorIdx].currentHp < 0) simState[actorIdx].currentHp = 0;
-                                        this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: loRec, effMsg: '命が 削られた！', targetName: attacker.name });
+                            if (effect.meta) {
+                                // --- Switching Move Logic (Volt Switch, U-turn) ---
+                                // Run if damage dealt OR normal execution? Usually needs hit.
+                                // If target fainted, we still switch.
+                                if (effect.meta.switchingMove && totalDmg > 0) {
+                                    const p = this.players[actorIdx];
+                                    const bench = p.team.map((m, i) => ({ m, i })).filter(x => x.i !== p.activeIdx && x.m.currentHp > 0);
+                                    if (bench.length > 0) {
+                                        this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 手持ちに戻っていった！` });
+                                        this.turnQueue.push({ type: 'forceSwitchAction', actorIdx: actorIdx });
                                     }
                                 }
 
-                                if (effect.statChanges) {
-                                    effect.statChanges.forEach(ch => {
-                                        // Chance check for secondary effects
-                                        let chance = ch.chance || 100;
-                                        if (attacker.ability === 'Serene Grace' || attacker.ability === 'てんのめぐみ') chance *= 2;
+                                // --- Outrage Logic ---
+                                if (effect.meta.outrage) {
+                                    if (!attacker.outrage) {
+                                        attacker.outrage = { turns: Math.floor(Math.random() * 2) + 2, moveName: move.name };
+                                        this.turnQueue.push({ type: 'text', msg: `${attacker.name} は あばれだした！` });
+                                    }
+                                }
 
-                                        if (Math.random() * 100 > chance) return;
-
-                                        // Clear Amulet / Covert Cloak Check
-                                        // Clear Amulet blocks stat drops. Covert Cloak blocks secondary effects.
-                                        if (ch.target !== 'self') {
-                                            if (defender.item === 'おんみつマント' || defender.item === 'Covert Cloak') return;
-                                            if (ch.stage < 0 && (defender.item === 'クリアチャーム' || defender.item === 'Clear Amulet')) {
-                                                this.turnQueue.push({ type: 'text', msg: `${defender.name} の アイテムが 能力ダウンを防いだ！` });
-                                                return;
-                                            }
-                                        }
-
-                                        const targetObj = (ch.target === 'self') ? attacker : defender;
-                                        const targetPName = (ch.target === 'self') ? attacker.name : defender.name;
-                                        if (!targetObj.ranks) targetObj.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
-                                        targetObj.ranks[ch.stat] += ch.stage;
-                                        if (targetObj.ranks[ch.stat] > 6) targetObj.ranks[ch.stat] = 6;
-                                        if (targetObj.ranks[ch.stat] < -6) targetObj.ranks[ch.stat] = -6;
-                                        const statNames = { atk: '攻撃', def: '防御', spa: '特攻', spd: '特防', spe: '素早さ', eva: '回避率', acc: '命中率' };
-                                        const stageText = (ch.stage >= 2) ? 'ぐーんと上がった' : (ch.stage === 1) ? '上がった' : (ch.stage <= -2) ? 'がくっと下がった' : '下がった';
-                                        this.turnQueue.push({ type: 'text', msg: `${targetPName} の ${statNames[ch.stat]} が ${stageText}！` });
-                                    });
+                                // --- Recoil (Max HP based - Steel Beam) ---
+                                if (effect.meta.recoilMaxHp) {
+                                    const rec = Math.floor(attacker.stats.hp * effect.meta.recoilMaxHp);
+                                    simState[actorIdx].currentHp -= rec;
+                                    if (simState[actorIdx].currentHp < 0) simState[actorIdx].currentHp = 0;
+                                    this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: rec, effMsg: '体力を削って攻撃した！', targetName: attacker.name });
                                 }
 
                                 // --- Burn Up Type Removal ---
-                                if (effect.meta && effect.meta.burnUp && totalDmg > 0) {
+                                if (effect.meta.burnUp && totalDmg > 0) {
                                     attacker.types = attacker.types.filter(t => t !== 'fire');
                                     if (attacker.types.length === 0) attacker.types = ['none'];
                                     this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 燃え尽きて ほのおタイプが なくなった！` });
                                 }
+                            }
+
+                            // --- Universal Updates (Must run) ---
+                            // Turn Decrement and Confusion (Outrage)
+                            if (attacker.outrage && attacker.outrage.moveName === move.name) {
+                                attacker.outrage.turns--;
+                                if (attacker.outrage.turns <= 0) {
+                                    attacker.outrage = null;
+                                    attacker.confusion = { turns: Math.floor(Math.random() * 4) + 2 };
+                                    this.turnQueue.push({ type: 'text', msg: `${attacker.name} は 疲れ果てて こんらんした！` });
+                                }
+                            }
+                            this.lastMoveUsed = move; // Global state update
+                            attacker.lastMoveUsed = move;
+                            move.used = true;
+
+                            // Final Gambit (Always faints user)
+                            if (move.name === 'いのちがけ' || move.name === 'Final Gambit') {
+                                simState[actorIdx].currentHp = 0;
+                                this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: attacker.stats.hp, msg: `${attacker.name} は 全力を出し切った！` });
+                            }
+
+                            // Life Orb Recoil (Always triggers on hit even if kill)
+                            if (attacker.item === 'いのちのたま' && totalDmg > 0) {
+                                const loRec = Math.floor(attacker.stats.hp / 10);
+                                simState[actorIdx].currentHp -= loRec;
+                                if (simState[actorIdx].currentHp < 0) simState[actorIdx].currentHp = 0;
+                                this.turnQueue.push({ type: 'damage', targetIdx: actorIdx, damage: loRec, effMsg: '命が 削られた！', targetName: attacker.name });
+                            }
+
+                            // --- Stat Changes ---
+                            if (effect.statChanges) {
+                                effect.statChanges.forEach(ch => {
+                                    // Chance check
+                                    let chance = ch.chance || 100;
+                                    if (attacker.ability === 'Serene Grace' || attacker.ability === 'てんのめぐみ') chance *= 2;
+                                    if (Math.random() * 100 > chance) return;
+
+                                    // Dead Target Check: If target is NOT self, and target is dead, skip.
+                                    if (ch.target !== 'self' && simState[targetIdx].currentHp <= 0) return;
+
+                                    // Clear Amulet / Covert Cloak Check
+                                    // Covert Cloak blocks secondary effects (non-self)
+                                    // FIX: Status moves (Charm, Screech) should NOT be blocked by Covert Cloak
+                                    if (ch.target !== 'self') {
+                                        if (move.category !== 'status' && (defender.item === 'おんみつマント' || defender.item === 'Covert Cloak')) return;
+                                        if (ch.stage < 0 && (defender.item === 'クリアチャーム' || defender.item === 'Clear Amulet')) {
+                                            this.turnQueue.push({ type: 'text', msg: `${defender.name} の アイテムが 能力ダウンを防いだ！` });
+                                            return;
+                                        }
+                                    }
+
+                                    const targetObj = (ch.target === 'self') ? attacker : defender;
+                                    const targetPName = (ch.target === 'self') ? attacker.name : defender.name;
+                                    if (!targetObj.ranks) targetObj.ranks = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, eva: 0, acc: 0 };
+                                    targetObj.ranks[ch.stat] += ch.stage;
+                                    if (targetObj.ranks[ch.stat] > 6) targetObj.ranks[ch.stat] = 6;
+                                    if (targetObj.ranks[ch.stat] < -6) targetObj.ranks[ch.stat] = -6;
+                                    const statNames = { atk: '攻撃', def: '防御', spa: '特攻', spd: '特防', spe: '素早さ', eva: '回避率', acc: '命中率' };
+                                    const stageText = (ch.stage >= 2) ? 'ぐーんと上がった' : (ch.stage === 1) ? '上がった' : (ch.stage <= -2) ? 'がくっと下がった' : '下がった';
+                                    this.turnQueue.push({ type: 'text', msg: `${targetPName} の ${statNames[ch.stat]} が ${stageText}！` });
+                                });
                             }
 
                             if (simState[targetIdx].currentHp <= 0) {
@@ -4000,9 +4006,10 @@
                 // 【修正】配列が存在しない場合のみ初期化
                 if (!this.turnQueue) this.turnQueue = [];
 
-                // 【修正】上書き(=)ではなく、既存のキューの後ろに追加(push)する
-                if (queue && queue.length > 0) {
-                    queue.forEach(q => this.turnQueue.push(q));
+                // 【修正】Firebase が配列をオブジェクトとして返す場合に対応
+                if (queue) {
+                    const arr = Array.isArray(queue) ? queue : Object.values(queue);
+                    arr.forEach(q => { if (q) this.turnQueue.push(q); });
                 }
 
                 if (phase === 'end') {
@@ -4025,6 +4032,11 @@
                     if (this.battleStarting) {
                         this.battleStarting = false;
                         this.startTurnCycle();
+                        return;
+                    }
+                    // Guest: mainキュー処理完了後、endフェーズデータを待つ
+                    if (this.gameMode === 'online' && !this.online.isHost && this.endOfTurnStage === 0) {
+                        console.log("Guest: main queue processed. Waiting for end phase data...");
                         return;
                     }
                     this.endTurn();
@@ -4569,11 +4581,53 @@
                     }
                 }
 
+                // --- Immunity Abilities (Return 0 damage immediately) ---
+                // Levitate (Ground)
+                if (moveType === 'ground' && (defender.ability === 'ふゆう' || defender.ability === 'Levitate')) {
+                    // Start basic implementation. Gravity/Iron Ball interactions ignored for now.
+                    if (move.name !== 'サウザンアロー' && move.name !== 'Thousand Arrows') {
+                        return { damage: 0, superEffective: 0, immuneByAbility: defender.ability };
+                    }
+                }
+                // Lightning Rod / Volt Absorb (Electric)
+                if (moveType === 'electric') {
+                    if (defender.ability === 'ひらいしん' || defender.ability === 'Lightning Rod' || defender.ability === 'ちくでん' || defender.ability === 'Volt Absorb') {
+                        return { damage: 0, superEffective: 0, immuneByAbility: defender.ability };
+                    }
+                }
+                // Storm Drain / Water Absorb (Water)
+                if (moveType === 'water') {
+                    if (defender.ability === 'よびみず' || defender.ability === 'Storm Drain' || defender.ability === 'ちょすい' || defender.ability === 'Water Absorb') {
+                        return { damage: 0, superEffective: 0, immuneByAbility: defender.ability };
+                    }
+                }
+                // Flash Fire (Fire) - Immunity
+                if (moveType === 'fire') {
+                    if (defender.ability === 'もらいび' || defender.ability === 'Flash Fire') {
+                        return { damage: 0, superEffective: 0, immuneByAbility: defender.ability };
+                    }
+                }
+
                 if (power <= 0) return { damage: 0, superEffective: 1 };
 
                 // --- Final Gambit (いのちがけ) ---
                 if (move.name === 'いのちがけ' || move.name === 'Final Gambit') {
                     return { damage: attacker.currentHp, superEffective: 1 };
+                }
+
+                // --- Technician (Base Power Boost) ---
+                // Must be checked before other power modifiers but after variable power?
+                // Technician applies to "Base Power".
+                if (power <= 60 && (attacker.ability === 'テクニシャン' || attacker.ability === 'Technician')) {
+                    power = Math.floor(power * 1.5);
+                }
+
+                // --- Sheer Force (Base Power Boost) ---
+                // Boosts power by 1.3x but removes secondary effects.
+                // We don't remove effects HERE, we rely on the `sheerForce` flag in resolveTurn to skip them.
+                // But we boost power here.
+                if ((attacker.ability === 'ちからずく' || attacker.ability === 'Sheer Force') && (move.effect || (move.meta && (move.meta.status || move.meta.statChanges)))) {
+                    power = Math.floor(power * 1.3);
                 }
 
                 // --- Charge Boost ---
@@ -4613,6 +4667,21 @@
                 a = Math.floor(a * this.getRankMultiplier(effectiveAtkRank));
                 d = Math.floor(d * this.getRankMultiplier(effectiveDefRank));
 
+                // --- Guts (Atk Boost) ---
+                if (isPhys && attacker.status && (attacker.ability === 'こんじょう' || attacker.ability === 'Guts')) {
+                    a = Math.floor(a * 1.5);
+                    // Guts ignores Burn Drop?
+                    // Burn drop is usually applied at end or via '0.5' modifier.
+                    // If we handle burn drop later, we need to signal Guts to ignore it.
+                    // Or we just handle burn drop here?
+                    // Standard Burn is 0.5x Atk.
+                }
+
+                // --- Flash Fire (Atk/SpA Boost) ---
+                if (moveType === 'fire' && attacker.flashFireBoost) {
+                    a = Math.floor(a * 1.5); // 1.5x damage for Fire moves -> effectively 1.5x Atk/SpA
+                }
+
                 // 1b. Weather Stat Boosts (Sand/Snow) - Stat Level
                 if (this.weather === 'sandstorm' && defender.types.includes('rock') && !isPhys) {
                     d = Math.floor(d * 1.5); // Rock gets SpD boost in Sand
@@ -4635,6 +4704,14 @@
                 if (isPhys && attacker.item === 'こだわりハチマキ') a = Math.floor(a * 1.5);
                 if (!isPhys && attacker.item === 'こだわりメガネ') a = Math.floor(a * 1.5);
                 if (!isPhys && defender.item === 'とつげきチョッキ') d = Math.floor(d * 1.5);
+
+                // --- Burn Attack Drop ---
+                // Applied if not Guts
+                if (isPhys && attacker.status && attacker.status.condition === 'brn') {
+                    if (attacker.ability !== 'こんじょう' && attacker.ability !== 'Guts') {
+                        a = Math.floor(a * 0.5);
+                    }
+                }
 
                 // 2. Base Damage Calculation
                 // Formula: floor(floor(floor(2 * L / 5 + 2) * Power * A / D) / 50) + 2
